@@ -218,7 +218,7 @@ local FlyToggle = PlayerTab:CreateToggle({
 -- Slider de velocidade do Fly
 local FlySpeedSlider = PlayerTab:CreateSlider({
     Name = "Fly Speed",
-    Range = {10, 1000},
+    Range = {10, 10000},
     Increment = 5,
     Suffix = "Studs/s",
     CurrentValue = flySpeed,
