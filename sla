@@ -1,287 +1,324 @@
--- LocalScript unificado com ESP otimizado, Infinite Jump Studio-only, highlights por tag e FOV slider
+--- Roku Script - Final Version
+-- description A comprehensive, multi-feature script for Roblox, built for performance and stability.
+-- features Player Teleport, Movement Mods (Fly, Noclip, Speed), Visual ESP, and Keybinds.
+
+-- Services:
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local CollectionService = game:GetService("CollectionService")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 
-local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
-local camera = workspace.CurrentCamera
-local IS_STUDIO = RunService:IsStudio()
-local originalFOV = camera and camera.FieldOfView or 70
+local localPlayer = Players.LocalPlayer
+local mouse = localPlayer:GetMouse()
 
-local connections, tagHighlightMap, playerHighlightMap = {}, {}, {}
-local dragging, infiniteJumpEnabled, highlightsEnabled, espEnabled = false, false, false, false
-local teamCheckEnabled = true
+-- Configuration:
 
-local function addConn(conn) if conn then table.insert(connections, conn) end end
+local Config = {
+    -- Feature state tracking
+    InfiniteJump = false,
+    IsFlying = false,
+    Noclip = false,
+    ESP = false,
+    ClickTeleport = false,
 
--- ========== Highlights para tags ==========
-local function createHighlight(inst, color, map)
-    if not inst or map[inst] then return end
-    local h = Instance.new("Highlight")
-    h.Name = "DebugHighlightInstance"
-    h.Adornee = inst
-    h.FillColor = color
-    h.FillTransparency = 0.6
-    h.OutlineColor = color:lerp(Color3.new(0,0,0), 0.5)
-    h.OutlineTransparency = 0.3
-    h.Parent = playerGui
-    map[inst] = h
+    -- Customisable values
+    FlySpeed = 100,
+    WalkSpeed = 16,
+
+    -- User-defined keybinds
+    Keybinds = {
+        ToggleFly = Enum.KeyCode.F,
+        ToggleNoclip = Enum.KeyCode.V,
+    }
+}
+
+-- Private variables for managing script elements
+local espElements = {}      -- Stores ESP BillboardGuis for cleanup
+local flyVelocity = nil     -- Holds the LinearVelocity for flying
+local noclipConnection = nil-- Holds the noclip RunService connection
+local clickTpConnection = nil-- Holds the click teleport input connection
+
+-- UI Setup:
+
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+local Window = Rayfield:CreateWindow({
+    Name = "Roku Script - Final",
+    LoadingSubtitle = "by Roku",
+    ConfigurationSaving = { Enabled = true, FileName = "RokuScriptFinal" }
+})
+
+Rayfield:Notify({
+    Title = "Roku Script Loaded",
+    Content = "Welcome! All features are available in the UI.",
+    Duration = 8
+})
+
+-- Core Logic & Feature Toggles:
+
+-- Handles character setup on spawn/respawn
+local function setupCharacter(character)
+    pcall(function()
+        local humanoid = character:WaitForChild("Humanoid")
+        humanoid.WalkSpeed = Config.WalkSpeed -- Apply saved walkspeed
+
+        -- Handle infinite jump logic
+        humanoid.StateChanged:Connect(function(_, newState)
+            if newState == Enum.HumanoidStateType.Jumping and Config.InfiniteJump then
+                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end)
+    end)
 end
 
-local function removeHighlight(inst, map)
-    local h = map[inst]
-    if h then pcall(function() h:Destroy() end) map[inst] = nil end
-end
+-- Toggles the state of flying
+local function setFlying(enabled)
+    Config.IsFlying = enabled
+    local character = localPlayer.Character
+    if not character then return end
+    
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return end
 
-local function refreshTaggedHighlights()
-    for inst,_ in pairs(tagHighlightMap) do
-        if not inst or not CollectionService:HasTag(inst, "DebugHighlight") then
-            removeHighlight(inst, tagHighlightMap)
+    if enabled then
+        local attachment = Instance.new("Attachment", rootPart)
+        flyVelocity = Instance.new("LinearVelocity", attachment)
+        flyVelocity.Attachment0 = attachment
+        flyVelocity.MaxForce = 100000
+        flyVelocity.VectorVelocity = Vector3.new(0, 0, 0)
+    else
+        if flyVelocity then
+            flyVelocity:Destroy()
+            flyVelocity = nil
         end
     end
-    for _, inst in ipairs(CollectionService:GetTagged("DebugHighlight")) do
-        createHighlight(inst, Color3.fromRGB(255,200,60), tagHighlightMap)
-    end
+    Rayfield:Notify({Title = "Flying", Content = enabled and "Enabled" or "Disabled", Duration = 3})
 end
 
--- ========== ESP de jogadores ==========
-local function getTeamColor(plr)
-    local tc = plr.TeamColor
-    if tc and tc ~= BrickColor.new("") then return tc.Color end
-    if plr.Team and plr.Team.TeamColor then return plr.Team.TeamColor.Color end
-    return Color3.fromRGB(255,255,255)
-end
-
-local function shouldShowPlayer(plr)
-    return plr ~= player and plr.Character and espEnabled and (not teamCheckEnabled or not (player.Team and plr.Team == player.Team))
-end
-
-local function createOrUpdatePlayerHighlight(plr)
-    if not plr or not plr.Character then return end
-    local color = getTeamColor(plr)
-    local h = playerHighlightMap[plr]
-    if h and h.Parent then
-        h.FillColor = color
-        h.OutlineColor = color:lerp(Color3.new(0,0,0),0.5)
-        return
-    end
-    h = Instance.new("Highlight")
-    h.Name = "ESPPlayerHighlight"
-    h.Adornee = plr.Character
-    h.FillColor = color
-    h.FillTransparency = 0.7
-    h.OutlineColor = color:lerp(Color3.new(0,0,0),0.45)
-    h.OutlineTransparency = 0.25
-    h.Parent = playerGui
-    playerHighlightMap[plr] = h
-    local remConn
-    remConn = plr.CharacterRemoving:Connect(function()
-        removeHighlight(plr, playerHighlightMap)
-        if remConn then remConn:Disconnect() end
-    end)
-    addConn(remConn)
-end
-
-local function updateAllPlayerHighlights()
-    for _, plr in pairs(Players:GetPlayers()) do
-        if shouldShowPlayer(plr) then createOrUpdatePlayerHighlight(plr) else removeHighlight(plr, playerHighlightMap) end
-    end
-end
-
-local function onPlayerTeamChanged(plr)
-    if playerHighlightMap[plr] then
-        if teamCheckEnabled and player.Team and plr.Team == player.Team then removeHighlight(plr, playerHighlightMap) else createOrUpdatePlayerHighlight(plr) end
-    elseif shouldShowPlayer(plr) then
-        createOrUpdatePlayerHighlight(plr)
-    end
-end
-
--- ========== UI ==========
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "DebugCustomUI"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = playerGui
-
-local mainFrame = Instance.new("Frame")
-mainFrame.Name, mainFrame.Size, mainFrame.Position, mainFrame.AnchorPoint = "MainFrame", UDim2.new(0,420,0,220), UDim2.new(0.5,-210,0.5,-110), Vector2.new(0.5,0.5)
-mainFrame.BackgroundColor3, mainFrame.BorderSizePixel = Color3.fromRGB(30,30,30), 0
-mainFrame.Parent = screenGui
-Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0,8)
-
-local function createLabel(text,posX,posY,sizeX,sizeY,fontSize)
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0,sizeX,0,sizeY)
-    lbl.Position = UDim2.new(0,posX,0,posY)
-    lbl.BackgroundTransparency = 1
-    lbl.Text, lbl.TextColor3, lbl.Font, lbl.TextSize, lbl.TextXAlignment = text, Color3.fromRGB(220,220,220), Enum.Font.SourceSans, fontSize, Enum.TextXAlignment.Left
-    lbl.Parent = mainFrame
-    return lbl
-end
-
-local fovLabel = createLabel("FOV: "..tostring(math.floor(originalFOV)),12,48,200,22,16)
-local ijLabel = createLabel("Infinite Jump (Studio only):",12,104,220,22,16)
-local hlLabel = createLabel("Highlight (tag: DebugHighlight):",12,136,220,22,16)
-local espLabel = createLabel("ESP (Players) :",12,168,220,22,16)
-local teamCheckLabel = createLabel("TeamCheck: On",308,168,160,18,14)
-
--- Close Button
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size, closeBtn.Position, closeBtn.Text, closeBtn.Font, closeBtn.TextSize, closeBtn.BackgroundColor3 = UDim2.new(0,36,0,24), UDim2.new(1,-44,0,8), "X", Enum.Font.SourceSansBold, 18, Color3.fromRGB(200,60,60)
-closeBtn.TextColor3, closeBtn.Parent = Color3.new(1,1,1), mainFrame
-Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0,6)
-
--- FOV Slider
-local sliderTrack = Instance.new("Frame")
-sliderTrack.Size, sliderTrack.Position, sliderTrack.BackgroundColor3 = UDim2.new(0,320,0,10), UDim2.new(0,12,0,76), Color3.fromRGB(50,50,50)
-sliderTrack.Parent = mainFrame
-Instance.new("UICorner", sliderTrack).CornerRadius = UDim.new(1,0)
-local sliderFill = Instance.new("Frame")
-sliderFill.Size, sliderFill.Position, sliderFill.BackgroundColor3 = UDim2.new((originalFOV-10)/(120-10),0,1,0), UDim2.new(0,0,0,0), Color3.fromRGB(80,160,255)
-sliderFill.Parent = sliderTrack
-Instance.new("UICorner", sliderFill).CornerRadius = UDim.new(1,0)
-local sliderKnob = Instance.new("ImageButton")
-sliderKnob.Size, sliderKnob.Position, sliderKnob.BackgroundColor3, sliderKnob.Image = UDim2.new(0,18,0,18), UDim2.new(sliderFill.Size.X.Scale,0,0.5,-9), Color3.fromRGB(245,245,245), ""
-sliderKnob.Parent = sliderTrack
-Instance.new("UICorner", sliderKnob).CornerRadius = UDim.new(1,0)
-
--- Infinite Jump Toggle
-local ijToggle = Instance.new("TextButton")
-ijToggle.Size, ijToggle.Position, ijToggle.Text, ijToggle.Font, ijToggle.TextSize, ijToggle.BackgroundColor3 = UDim2.new(0,60,0,24), UDim2.new(0,240,0,100), "Off", Enum.Font.SourceSansBold, 14, Color3.fromRGB(90,90,90)
-ijToggle.TextColor3, ijToggle.Parent = Color3.fromRGB(240,240,240), mainFrame
-
--- Highlight Toggle
-local hlToggle = Instance.new("TextButton")
-hlToggle.Size, hlToggle.Position, hlToggle.Text, hlToggle.Font, hlToggle.TextSize, hlToggle.BackgroundColor3 = UDim2.new(0,60,0,24), UDim2.new(0,240,0,132), "Off", Enum.Font.SourceSansBold, 14, Color3.fromRGB(90,90,90)
-hlToggle.TextColor3, hlToggle.Parent = Color3.fromRGB(240,240,240), mainFrame
-
--- ESP Toggle
-local espToggle = Instance.new("TextButton")
-espToggle.Size, espToggle.Position, espToggle.Text, espToggle.Font, espToggle.TextSize, espToggle.BackgroundColor3 = UDim2.new(0,60,0,24), UDim2.new(0,240,0,164), "Off", Enum.Font.SourceSansBold, 14, Color3.fromRGB(90,90,90)
-espToggle.TextColor3, espToggle.Parent = Color3.fromRGB(240,240,240), mainFrame
-
--- Studio Warning
-local studioWarning = Instance.new("TextLabel")
-studioWarning.Size, studioWarning.Position, studioWarning.Text, studioWarning.TextColor3, studioWarning.Font, studioWarning.TextSize, studioWarning.TextXAlignment = UDim2.new(1,-16,0,18), UDim2.new(0,8,1,-28), IS_STUDIO and "Rodando no Studio" or "Aviso: Infinite Jump só funciona no Studio para segurança.", Color3.fromRGB(200,200,120), Enum.Font.SourceSansItalic, 12, Enum.TextXAlignment.Left
-studioWarning.BackgroundTransparency = 1
-studioWarning.Parent = mainFrame
-
--- ========== Funções UI ==========
-local function setFOV(percent)
-    percent = math.clamp(percent,0,1)
-    local value = 10 + (120-10)*percent
-    camera.FieldOfView = value
-    fovLabel.Text = "FOV: "..tostring(math.floor(value))
-    sliderFill.Size = UDim2.new(percent,0,1,0)
-    sliderKnob.Position = UDim2.new(percent,0,0.5,-9)
-end
-
-local function getPercentFromX(absX)
-    local pos, size = sliderTrack.AbsolutePosition.X, sliderTrack.AbsoluteSize.X
-    return math.clamp((absX-pos)/size,0,1)
-end
-
-addConn(sliderKnob.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then dragging=false end
+-- Toggles the state of noclip
+local function setNoclip(enabled)
+    Config.Noclip = enabled
+    if enabled then
+        noclipConnection = RunService.Stepped:Connect(function()
+            if not Config.Noclip or not localPlayer.Character then return end
+            for _, part in ipairs(localPlayer.Character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
         end)
-    end
-end))
-
-addConn(UserInputService.InputChanged:Connect(function(input)
-    if dragging and input.UserInputType==Enum.UserInputType.MouseMovement then
-        setFOV(getPercentFromX(input.Position.X))
-    end
-end))
-
-addConn(UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType==Enum.UserInputType.MouseButton1 then dragging=false end
-end))
-
--- Infinite Jump Toggle
-addConn(ijToggle.MouseButton1Click:Connect(function()
-    if not IS_STUDIO then
-        ijToggle.Text, ijToggle.BackgroundColor3, infiniteJumpEnabled = "Off", Color3.fromRGB(90,90,90), false
-        studioWarning.Text = "Aviso: Infinite Jump só funciona no Studio para segurança."
-        return
-    end
-    infiniteJumpEnabled = not infiniteJumpEnabled
-    ijToggle.Text = infiniteJumpEnabled and "On" or "Off"
-    ijToggle.BackgroundColor3 = infiniteJumpEnabled and Color3.fromRGB(80,160,80) or Color3.fromRGB(90,90,90)
-end))
-
-addConn(UserInputService.JumpRequest:Connect(function()
-    if infiniteJumpEnabled then
-        local char = player.Character
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if hum and hum.Health>0 then pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end) end
-    end
-end))
-
--- Highlight Toggle
-addConn(hlToggle.MouseButton1Click:Connect(function()
-    highlightsEnabled = not highlightsEnabled
-    hlToggle.Text = highlightsEnabled and "On" or "Off"
-    hlToggle.BackgroundColor3 = highlightsEnabled and Color3.fromRGB(80,160,80) or Color3.fromRGB(90,90,90)
-    if highlightsEnabled then
-        refreshTaggedHighlights()
-        addConn(CollectionService:GetInstanceAddedSignal("DebugHighlight"):Connect(createHighlightForTag))
-        addConn(CollectionService:GetInstanceRemovedSignal("DebugHighlight"):Connect(removeHighlightForTag))
     else
-        for inst,_ in pairs(tagHighlightMap) do removeHighlight(inst, tagHighlightMap) end
+        if noclipConnection then
+            noclipConnection:Disconnect()
+            noclipConnection = nil
+        end
     end
-end))
-
--- ESP Toggle
-addConn(espToggle.MouseButton1Click:Connect(function()
-    espEnabled = not espEnabled
-    espToggle.Text = espEnabled and "On" or "Off"
-    espToggle.BackgroundColor3 = espEnabled and Color3.fromRGB(80,160,80) or Color3.fromRGB(90,90,90)
-    updateAllPlayerHighlights()
-end))
-
--- TeamCheck Toggle
-local function toggleTeamCheck()
-    teamCheckEnabled = not teamCheckEnabled
-    teamCheckLabel.Text = "TeamCheck: "..(teamCheckEnabled and "On" or "Off")
-    updateAllPlayerHighlights()
+    Rayfield:Notify({Title = "Noclip", Content = enabled and "Enabled" or "Disabled", Duration = 3})
 end
-addConn(teamCheckLabel.MouseButton1Click:Connect(toggleTeamCheck))
-addConn(teamCheckLabel.InputBegan:Connect(function(input) if input.UserInputType==Enum.UserInputType.MouseButton1 then toggleTeamCheck() end end))
 
--- Player listeners
-addConn(Players.PlayerAdded:Connect(function(plr)
-    addConn(plr:GetPropertyChangedSignal("Team"):Connect(function() onPlayerTeamChanged(plr) end))
-    addConn(plr.CharacterAdded:Connect(function() wait(0.1) if espEnabled and shouldShowPlayer(plr) then createOrUpdatePlayerHighlight(plr) end end))
-end))
+-- Toggles the state of ESP
+local function setESP(enabled)
+    Config.ESP = enabled
+    if not enabled then
+        -- Clean up all created ESP elements
+        for player, elements in pairs(espElements) do
+            if elements.Billboard then elements.Billboard:Destroy() end
+            if elements.Tracer then elements.Tracer:Destroy() end
+        end
+        espElements = {}
+    end
+    Rayfield:Notify({Title = "ESP", Content = enabled and "Enabled" or "Disabled", Duration = 3})
+end
 
-addConn(Players.PlayerRemoving:Connect(removeHighlight))
+-- Toggles click teleport mode
+local function setClickTeleport(enabled)
+    Config.ClickTeleport = enabled
+    if enabled then
+        Rayfield:Notify({Title = "Click Teleport", Content = "Enabled. Click anywhere to teleport.", Duration = 4})
+        clickTpConnection = mouse.Button1Down:Connect(function()
+            if not Config.ClickTeleport or not localPlayer.Character then return end
+            local rootPart = localPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if rootPart then
+                rootPart.CFrame = CFrame.new(mouse.Hit.Position)
+            end
+        end)
+    else
+        if clickTpConnection then
+            clickTpConnection:Disconnect()
+            clickTpConnection = nil
+        end
+        Rayfield:Notify({Title = "Click Teleport", Content = "Disabled.", Duration = 3})
+    end
+end
 
--- loop de atualização leve
-local runLoop = true
-spawn(function()
-    while runLoop do
-        if espEnabled then updateAllPlayerHighlights() end
-        if highlightsEnabled then refreshTaggedHighlights() end
-        wait(0.25)
+-- UI Element Creation:
+
+-- Player Tab
+local PlayerTab = Window:CreateTab("Player")
+local TeleportSection = PlayerTab:CreateSection("Teleportation")
+
+local playerDropdown = TeleportSection:CreateDropdown({
+    Name = "Select Player",
+    Options = {},
+    Callback = function() end,
+})
+
+TeleportSection:CreateButton({
+    Name = "Teleport to Player",
+    Callback = function()
+        local targetPlayer = Players:FindFirstChild(playerDropdown:Get())
+        if targetPlayer and targetPlayer.Character and localPlayer.Character then
+            local rootPart = localPlayer.Character:FindFirstChild("HumanoidRootPart")
+            local targetRootPart = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if rootPart and targetRootPart then
+                rootPart.CFrame = targetRootPart.CFrame * CFrame.new(0, 3, 0)
+                Rayfield:Notify({Title = "Teleport", Content = "Success!", Duration = 3})
+            end
+        else
+            Rayfield:Notify({Title = "Teleport Error", Content = "Could not find player.", Duration = 4})
+        end
+    end,
+})
+
+TeleportSection:CreateToggle({Name = "Click Teleport Mode", CurrentValue = false, Callback = setClickTeleport})
+
+-- Movement Tab
+local MovementTab = Window:CreateTab("Movement")
+local GeneralSection = MovementTab:CreateSection("General")
+GeneralSection:CreateSlider({
+    Name = "Walk Speed",
+    Range = {16, 200},
+    Default = 16,
+    Callback = function(value)
+        Config.WalkSpeed = value
+        if localPlayer.Character and localPlayer.Character:FindFirstChild("Humanoid") then
+            localPlayer.Character.Humanoid.WalkSpeed = value
+        end
+    end,
+})
+GeneralSection:CreateToggle({
+    Name = "Infinite Jump",
+    CurrentValue = false,
+    Callback = function(v) Config.InfiniteJump = v Rayfield:Notify({Title = "Infinite Jump", Content = v and "On" or "Off", Duration = 3}) end,
+})
+
+local AirSection = MovementTab:CreateSection("Advanced")
+AirSection:CreateSlider({
+    Name = "Fly Speed",
+    Range = {50, 500},
+    Default = 100,
+    Callback = function(v) Config.FlySpeed = v end,
+})
+AirSection:CreateToggle({Name = "Flying", CurrentValue = false, Callback = setFlying})
+AirSection:CreateToggle({Name = "Noclip", CurrentValue = false, Callback = setNoclip})
+
+-- Visuals Tab
+local VisualsTab = Window:CreateTab("Visuals")
+local ESPSection = VisualsTab:CreateSection("ESP")
+ESPSection:CreateToggle({Name = "Player ESP", CurrentValue = false, Callback = setESP})
+
+-- Update Loops:
+
+RunService.RenderStepped:Connect(function()
+    -- Flying update loop
+    if Config.IsFlying and flyVelocity and localPlayer.Character then
+        local head = localPlayer.Character:FindFirstChild("Head")
+        if not head then return end
+        
+        local moveVector = Vector3.new()
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveVector += head.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveVector -= head.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveVector -= head.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveVector += head.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.E) then moveVector += Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Q) then moveVector -= Vector3.new(0, 1, 0) end
+
+        flyVelocity.VectorVelocity = (moveVector.Magnitude > 0 and moveVector.Unit or moveVector) * Config.FlySpeed
+    end
+
+    -- ESP update loop
+    if Config.ESP then
+        local camera = Workspace.CurrentCamera
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= localPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                local rootPart = player.Character.HumanoidRootPart
+                local screenPos, onScreen = camera:WorldToScreenPoint(rootPart.Position)
+
+                if onScreen then
+                    if not espElements[player] then espElements[player] = {} end
+                    
+                    -- Create Billboard GUI if needed
+                    if not espElements[player].Billboard or not espElements[player].Billboard.Parent then
+                        local billboard = Instance.new("BillboardGui", player.Character)
+                        billboard.Adornee = rootPart
+                        billboard.Size = UDim2.new(0, 200, 0, 50)
+                        billboard.AlwaysOnTop = true
+                        local textLabel = Instance.new("TextLabel", billboard)
+                        textLabel.Size = UDim2.new(1, 0, 1, 0)
+                        textLabel.BackgroundTransparency = 1
+                        textLabel.TextScaled = true
+                        espElements[player].Billboard = billboard
+                        espElements[player].TextLabel = textLabel
+                    end
+                    
+                    -- Create Tracer Line if needed
+                    if not espElements[player].Tracer or not espElements[player].Tracer.Parent then
+                        espElements[player].Tracer = Drawing.new("Line")
+                    end
+
+                    -- Update visuals
+                    local distance = (camera.CFrame.Position - rootPart.Position).Magnitude
+                    espElements[player].TextLabel.Text = string.format("%s [%.0fm]", player.Name, distance)
+                    espElements[player].TextLabel.TextColor3 = player:GetTeamColor().Color
+                    
+                    espElements[player].Tracer.Visible = true
+                    espElements[player].Tracer.From = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y)
+                    espElements[player].Tracer.To = Vector2.new(screenPos.X, screenPos.Y)
+                    espElements[player].Tracer.Color = player:GetTeamColor().Color
+                    espElements[player].Tracer.Thickness = 1
+                else
+                    if espElements[player] and espElements[player].Tracer then
+                        espElements[player].Tracer.Visible = false -- Hide tracer if off-screen
+                    end
+                end
+            end
+        end
     end
 end)
 
--- Cleanup
-local function cleanup()
-    runLoop=false
-    pcall(function() if camera then camera.FieldOfView = originalFOV end end)
-    for _,con in ipairs(connections) do if con and typeof(con)=="RBXScriptConnection" then pcall(function() con:Disconnect() end) end end
-    for inst,_ in pairs(tagHighlightMap) do removeHighlight(inst, tagHighlightMap) end
-    for plr,_ in pairs(playerHighlightMap) do removeHighlight(plr, playerHighlightMap) end
-    if screenGui and screenGui.Parent then pcall(function() screenGui:Destroy() end) end
-end
-addConn(closeBtn.MouseButton1Click:Connect(cleanup))
-addConn(player.AncestryChanged:Connect(function() if not player:IsDescendantOf(game) then cleanup() end end))
+-- Event Handling & Initialisation:
 
-print("[DebugCustomUI] Interface carregada. ESP e Infinite Jump limitados ao Studio.")
-if not IS_STUDIO then print("[DebugCustomUI] Aviso: rodando fora do Studio — Infinite Jump desabilitado.") end
+-- Handle keybinds
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end -- Ignore if user is typing in chat
+
+    if input.KeyCode == Config.Keybinds.ToggleFly then setFlying(not Config.IsFlying) end
+    if input.KeyCode == Config.Keybinds.ToggleNoclip then setNoclip(not Config.Noclip) end
+end)
+
+-- Keep the player list for the dropdown updated
+local function updatePlayerList()
+    local playerNames = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= localPlayer then table.insert(playerNames, player.Name) end
+    end
+    playerDropdown:SetOptions(playerNames)
+end
+
+Players.PlayerAdded:Connect(updatePlayerList)
+Players.PlayerRemoving:Connect(function(player)
+    -- Clean up ESP elements for players who leave
+    if espElements[player] then
+        if espElements[player].Billboard then espElements[player].Billboard:Destroy() end
+        if espElements[player].Tracer then espElements[player].Tracer:Destroy() end
+        espElements[player] = nil
+    end
+    updatePlayerList()
+end)
+
+-- Initial setup
+localPlayer.CharacterAdded:Connect(setupCharacter)
+if localPlayer.Character then
+    setupCharacter(localPlayer.Character)
+end
+updatePlayerList() -- Populate player list on script execution
