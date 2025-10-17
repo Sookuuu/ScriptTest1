@@ -1,132 +1,19 @@
--- LocalScript: ESP com interface de botão ON/OFF
+local URL = "https://pastebin.com/raw/4YEBSYAq"
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-
-local LocalPlayer = Players.LocalPlayer
-local ESPs = {}
-local ESPEnabled = false
-local GUIVisible = false
-
--- Função para criar ESP para um jogador
-local function createESP(player)
-	if ESPs[player] then return end
-	if not player.Character then return end
-
-	local root = player.Character:FindFirstChild("HumanoidRootPart")
-	if not root then return end
-
-	local box = Instance.new("BillboardGui")
-	box.Name = "ESP"
-	box.Adornee = root
-	box.Size = UDim2.new(0,100,0,30)
-	box.AlwaysOnTop = true
-
-	local label = Instance.new("TextLabel")
-	label.BackgroundTransparency = 1
-	label.Size = UDim2.new(1,0,1,0)
-	label.TextScaled = true
-	label.Font = Enum.Font.SourceSans
-	label.TextColor3 = player.TeamColor.Color
-	label.Text = player.Name:lower().." ["..(player.Team and player.Team.Name:lower() or "NoTeam").."]"
-	label.Parent = box
-
-	box.Parent = LocalPlayer:WaitForChild("PlayerGui")
-	ESPs[player] = {Box = box, Label = label}
+local function fetch(url)
+    local req = (syn and syn.request) or http_request or request
+    if req then
+        local r = req({Url = url, Method = "GET"})
+        if r and (r.Body or r.body) then
+            return (r.Body or r.body)
+        end
+    end
+    if game and game.HttpGet then
+        return game:HttpGet(url, true)
+    end
+    error("No HTTP method available (executor must allow http).")
 end
 
--- Remove ESP
-local function removeESP(player)
-	if ESPs[player] then
-		ESPs[player].Box:Destroy()
-		ESPs[player] = nil
-	end
-end
-
--- Atualiza ESP de todos os jogadores
-local function updateESPs()
-	for player, _ in pairs(ESPs) do
-		if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-			local root = player.Character.HumanoidRootPart
-			ESPs[player].Box.Adornee = root
-			ESPs[player].Label.TextColor3 = player.TeamColor.Color
-			ESPs[player].Label.Text = player.Name:lower().." ["..(player.Team and player.Team.Name:lower() or "NoTeam").."]"
-		else
-			ESPs[player].Box.Adornee = nil
-		end
-	end
-end
-
--- Função para ativar/desativar ESP
-local function toggleESP()
-	ESPEnabled = not ESPEnabled
-	if ESPEnabled then
-		for _, player in pairs(Players:GetPlayers()) do
-			if player ~= LocalPlayer then
-				createESP(player)
-			end
-		end
-	else
-		for player, _ in pairs(ESPs) do
-			removeESP(player)
-		end
-	end
-end
-
--- Criando interface simples
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "ESP_GUI"
-ScreenGui.Enabled = false
-ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-
-local Frame = Instance.new("Frame")
-Frame.Size = UDim2.new(0,150,0,50)
-Frame.Position = UDim2.new(0.5,-75,0.1,0)
-Frame.BackgroundColor3 = Color3.fromRGB(40,40,40)
-Frame.BorderSizePixel = 0
-Frame.Parent = ScreenGui
-
-local Button = Instance.new("TextButton")
-Button.Size = UDim2.new(1,0,1,0)
-Button.Position = UDim2.new(0,0,0,0)
-Button.BackgroundColor3 = Color3.fromRGB(70,70,70)
-Button.TextColor3 = Color3.fromRGB(255,255,255)
-Button.TextScaled = true
-Button.Font = Enum.Font.SourceSans
-Button.Text = "ESP: OFF"
-Button.Parent = Frame
-
-Button.MouseButton1Click:Connect(function()
-	toggleESP()
-	Button.Text = ESPEnabled and "ESP: ON" or "ESP: OFF"
-end)
-
--- Mostrar/esconder interface ao apertar M
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-	if input.KeyCode == Enum.KeyCode.M then
-		GUIVisible = not GUIVisible
-		ScreenGui.Enabled = GUIVisible
-	end
-end)
-
--- Atualizar ESP todo frame
-RunService.RenderStepped:Connect(function()
-	if ESPEnabled then
-		updateESPs()
-	end
-end)
-
--- Monitorar jogadores entrando e saindo
-Players.PlayerAdded:Connect(function(player)
-	player.CharacterAdded:Connect(function()
-		if ESPEnabled then
-			createESP(player)
-		end
-	end)
-end)
-
-Players.PlayerRemoving:Connect(function(player)
-	removeESP(player)
-end)
+local src = fetch(URL)
+assert(src and #src > 0, "Failed to fetch script.")
+loadstring(src)()
