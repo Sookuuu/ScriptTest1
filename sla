@@ -1,92 +1,154 @@
--- LocalScript: ESP simples com nome e cor do time
+-- LocalScript para uso educativo / testes locais (StarterPlayerScripts)
 local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local playerESPMap = {}
+-- Estado
+local espEnabled = false
+local guiVisible = true
+local playerLabels = {} -- [player] = BillboardGui
 
--- Função pra pegar a cor do time
-local function getPlayerColor(p)
-    if p.Team and p.Team.TeamColor then
-        return p.Team.TeamColor.Color
-    end
-    return Color3.fromRGB(255,255,255) -- fallback branco
+-- Função para criar ESP
+local function createESP(plr)
+	if playerLabels[plr] or not plr.Character or not plr.Character:FindFirstChild("HumanoidRootPart") then return end
+	local root = plr.Character:WaitForChild("HumanoidRootPart")
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Adornee = root
+	billboard.Size = UDim2.new(0, 100, 0, 40)
+	billboard.StudsOffset = Vector3.new(0, 3, 0)
+	billboard.AlwaysOnTop = true
+	billboard.Parent = playerGui
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Size = UDim2.new(1,0,1,0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Text = plr.Name
+	nameLabel.TextScaled = true
+	nameLabel.Font = Enum.Font.SourceSansBold
+	nameLabel.TextColor3 = plr.TeamColor.Color
+	nameLabel.Parent = billboard
+
+	playerLabels[plr] = billboard
 end
 
--- Criar ESP para um player
-local function createESPFor(p)
-    if playerESPMap[p] then return end
-    if not p.Character then return end
-    local head = p.Character:FindFirstChild("Head")
-    if not head then return end
-
-    local billboard = Instance.new("BillboardGui")
-    billboard.Adornee = head
-    billboard.Size = UDim2.new(0,100,0,10)
-    billboard.StudsOffset = Vector3.new(0,2.5,0)
-    billboard.AlwaysOnTop = true
-    billboard.Parent = playerGui
-
-    local textLabel = Instance.new("TextLabel")
-    textLabel.Size = UDim2.new(1,0,1,0)
-    textLabel.BackgroundTransparency = 1
-    textLabel.Text = p.Name
-    textLabel.TextColor3 = getPlayerColor(p)
-    textLabel.Font = Enum.Font.SourceSansBold
-    textLabel.TextSize = 10
-    textLabel.TextStrokeTransparency = 0.6
-    textLabel.Parent = billboard
-
-    playerESPMap[p] = billboard
-
-    -- Remove ESP quando personagem for removido
-    p.CharacterRemoving:Connect(function()
-        if playerESPMap[p] then
-            pcall(function() playerESPMap[p]:Destroy() end)
-            playerESPMap[p] = nil
-        end
-    end)
+local function removeESP(plr)
+	if playerLabels[plr] then
+		pcall(function() playerLabels[plr]:Destroy() end)
+		playerLabels[plr] = nil
+	end
 end
 
--- Remover ESP de player
-local function removeESPFor(p)
-    if playerESPMap[p] then
-        pcall(function() playerESPMap[p]:Destroy() end)
-        playerESPMap[p] = nil
-    end
+local function updateESP()
+	for _, plr in pairs(Players:GetPlayers()) do
+		if plr ~= player then
+			if espEnabled and plr.Character then
+				createESP(plr)
+			else
+				removeESP(plr)
+			end
+		end
+	end
 end
 
--- Atualizar ESP de todos os players
-local function refreshESP()
-    for _,p in pairs(Players:GetPlayers()) do
-        if p ~= player and p.Character then
-            createESPFor(p)
-            -- atualiza a cor do nome caso mude de time
-            local label = playerESPMap[p] and playerESPMap[p]:FindFirstChildOfClass("TextLabel")
-            if label then
-                label.TextColor3 = getPlayerColor(p)
-            end
-        end
-    end
-    -- limpa ESP de players que saíram
-    for p,_ in pairs(playerESPMap) do
-        if not p.Parent or not p.Character then
-            removeESPFor(p)
-        end
-    end
-end
-
--- Atualiza sempre
-RunService.Heartbeat:Connect(refreshESP)
-
--- Criar ESP ao entrar no servidor
-Players.PlayerAdded:Connect(function(p)
-    p.CharacterAdded:Connect(function()
-        refreshESP()
-    end)
+-- ESP automático quando player entra ou respawna
+Players.PlayerAdded:Connect(function(plr)
+	plr.CharacterAdded:Connect(function()
+		if espEnabled then
+			createESP(plr)
+		end
+	end)
+end)
+Players.PlayerRemoving:Connect(function(plr)
+	removeESP(plr)
 end)
 
--- Remove ESP quando player sai
-Players.PlayerRemoving:Connect(removeESPFor)
+-- Loop leve para atualizar ESPs existentes (cores, nomes)
+RunService.RenderStepped:Connect(function()
+	if espEnabled then
+		for plr, gui in pairs(playerLabels) do
+			if plr.Character then
+				gui.Adornee = plr.Character:FindFirstChild("HumanoidRootPart")
+				gui.Frame.TextLabel.TextColor3 = plr.TeamColor.Color
+			end
+		end
+	end
+end)
+
+-- ===== UI =====
+local screenGui = Instance.new("ScreenGui")
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 220, 0, 100)
+mainFrame.Position = UDim2.new(0.5, -110, 0.5, -50)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+
+local corner = Instance.new("UICorner", mainFrame)
+corner.CornerRadius = UDim.new(0,8)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -36, 0, 24)
+title.Position = UDim2.new(0,8,0,8)
+title.BackgroundTransparency = 1
+title.Text = "ESP Menu"
+title.TextColor3 = Color3.fromRGB(240,240,240)
+title.Font = Enum.Font.SourceSansBold
+title.TextSize = 18
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = mainFrame
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 28, 0, 28)
+closeBtn.Position = UDim2.new(1, -36, 0, 8)
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.fromRGB(255,255,255)
+closeBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
+closeBtn.Font = Enum.Font.SourceSansBold
+closeBtn.TextSize = 18
+closeBtn.Parent = mainFrame
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0,6)
+
+local espToggle = Instance.new("TextButton")
+espToggle.Size = UDim2.new(0, 100, 0, 28)
+espToggle.Position = UDim2.new(0,60,0,50)
+espToggle.Text = "ESP Off"
+espToggle.TextColor3 = Color3.fromRGB(240,240,240)
+espToggle.BackgroundColor3 = Color3.fromRGB(90,90,90)
+espToggle.Font = Enum.Font.SourceSansBold
+espToggle.TextSize = 16
+espToggle.Parent = mainFrame
+Instance.new("UICorner", espToggle).CornerRadius = UDim.new(0,6)
+
+-- Toggle ESP
+espToggle.MouseButton1Click:Connect(function()
+	espEnabled = not espEnabled
+	espToggle.Text = espEnabled and "ESP On" or "ESP Off"
+	espToggle.BackgroundColor3 = espEnabled and Color3.fromRGB(80,160,80) or Color3.fromRGB(90,90,90)
+	updateESP()
+end)
+
+-- Fechar script completamente
+closeBtn.MouseButton1Click:Connect(function()
+	for plr,_ in pairs(playerLabels) do
+		removeESP(plr)
+	end
+	screenGui:Destroy()
+end)
+
+-- Toggle mostrar/esconder menu com M
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.M then
+		guiVisible = not guiVisible
+		mainFrame.Visible = guiVisible
+	end
+end)
+
+print("[ESP Menu] Carregado! Aperte M para minimizar, clique X para fechar script.")
