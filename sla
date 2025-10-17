@@ -1,153 +1,280 @@
--- LocalScript
+-- Debug ESP UI (apenas para uso em seus próprios jogos - desenvolvimento/testes)
+-- Coloque este LocalScript em StarterPlayerScripts
+
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
-local player = Players.LocalPlayer
-local camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
 
--- Config
-local MIN_FOV = 30
-local MAX_FOV = 120
-local DEFAULT_FOV = 70
-local TOGGLE_KEY = Enum.KeyCode.K
+-- Config iniciais
+local config = {
+    espEnabled = true,
+    teamCheck = true,       -- se true, só mostra jogadores de time diferente
+    showDistance = true,
+    updateRate = 0.1,       -- segundos entre atualizações (economia de performance)
+}
 
--- GUI
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "FOVGui"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = player:WaitForChild("PlayerGui")
+-- estado interno
+local running = true
+local gui
+local trackedMarkers = {}  -- [player] = {billboard, connection}
+local lastUpdate = 0
 
-local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 350, 0, 120)
-frame.Position = UDim2.new(0.5, -175, 0.8, -60)
-frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-frame.BackgroundTransparency = 0.2
-frame.BorderSizePixel = 0
-frame.Parent = screenGui
+-- helper para criar UI
+local function createGui()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "DebugESP_UI"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 30)
-title.BackgroundTransparency = 1
-title.Text = "Ajuste de FOV"
-title.Font = Enum.Font.SourceSansBold
-title.TextSize = 22
-title.TextColor3 = Color3.fromRGB(255,255,255)
-title.Parent = frame
+    local main = Instance.new("Frame")
+    main.Name = "Main"
+    main.Size = UDim2.new(0, 260, 0, 140)
+    main.Position = UDim2.new(0, 10, 0, 10)
+    main.BackgroundTransparency = 0.15
+    main.BackgroundColor3 = Color3.fromRGB(20,20,20)
+    main.BorderSizePixel = 0
+    main.AnchorPoint = Vector2.new(0,0)
+    main.Parent = screenGui
 
-local valueLabel = Instance.new("TextLabel")
-valueLabel.Size = UDim2.new(0, 80, 0, 30)
-valueLabel.Position = UDim2.new(1, -85, 0, 0)
-valueLabel.BackgroundTransparency = 1
-valueLabel.Text = tostring(DEFAULT_FOV)
-valueLabel.Font = Enum.Font.SourceSansBold
-valueLabel.TextSize = 22
-valueLabel.TextColor3 = Color3.fromRGB(255,255,255)
-valueLabel.TextXAlignment = Enum.TextXAlignment.Right
-valueLabel.Parent = frame
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -10, 0, 26)
+    title.Position = UDim2.new(0, 5, 0, 5)
+    title.BackgroundTransparency = 1
+    title.Text = "Debug Visualizer"
+    title.Font = Enum.Font.SourceSansBold
+    title.TextSize = 18
+    title.TextColor3 = Color3.new(1,1,1)
+    title.Parent = main
 
--- slider
-local bar = Instance.new("Frame")
-bar.Size = UDim2.new(1, -40, 0, 10)
-bar.Position = UDim2.new(0, 20, 0, 60)
-bar.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-bar.BorderSizePixel = 0
-bar.Parent = frame
+    -- ESP Toggle
+    local btnEsp = Instance.new("TextButton")
+    btnEsp.Name = "ToggleESP"
+    btnEsp.Size = UDim2.new(0, 120, 0, 30)
+    btnEsp.Position = UDim2.new(0, 5, 0, 40)
+    btnEsp.Text = config.espEnabled and "ESP: ON" or "ESP: OFF"
+    btnEsp.Font = Enum.Font.SourceSans
+    btnEsp.TextSize = 16
+    btnEsp.Parent = main
 
-local fill = Instance.new("Frame")
-fill.Size = UDim2.new(0, 0, 1, 0)
-fill.BackgroundColor3 = Color3.fromRGB(150, 150, 150)
-fill.BorderSizePixel = 0
-fill.Parent = bar
+    -- TeamCheck Toggle
+    local btnTeam = Instance.new("TextButton")
+    btnTeam.Name = "ToggleTeam"
+    btnTeam.Size = UDim2.new(0, 120, 0, 30)
+    btnTeam.Position = UDim2.new(0, 135, 0, 40)
+    btnTeam.Text = config.teamCheck and "TeamCheck: ON" or "TeamCheck: OFF"
+    btnTeam.Font = Enum.Font.SourceSans
+    btnTeam.TextSize = 16
+    btnTeam.Parent = main
 
-local knob = Instance.new("Frame")
-knob.Size = UDim2.new(0, 20, 0, 20)
-knob.Position = UDim2.new(0, -10, 0.5, -10)
-knob.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
-knob.BorderSizePixel = 0
-knob.Parent = bar
-knob.ZIndex = 2
+    -- Close Button (fecha tudo e para o script)
+    local btnClose = Instance.new("TextButton")
+    btnClose.Name = "CloseAll"
+    btnClose.Size = UDim2.new(1, -10, 0, 32)
+    btnClose.Position = UDim2.new(0, 5, 0, 85)
+    btnClose.Text = "Fechar (para tudo)"
+    btnClose.Font = Enum.Font.SourceSansBold
+    btnClose.TextSize = 16
+    btnClose.BackgroundColor3 = Color3.fromRGB(180,50,50)
+    btnClose.TextColor3 = Color3.new(1,1,1)
+    btnClose.Parent = main
 
-local minusBtn = Instance.new("TextButton")
-minusBtn.Size = UDim2.new(0, 30, 0, 30)
-minusBtn.Position = UDim2.new(0, 20, 1, -40)
-minusBtn.Text = "-"
-minusBtn.Font = Enum.Font.SourceSansBold
-minusBtn.TextSize = 24
-minusBtn.TextColor3 = Color3.new(1,1,1)
-minusBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-minusBtn.Parent = frame
+    -- eventos UI
+    btnEsp.MouseButton1Click:Connect(function()
+        config.espEnabled = not config.espEnabled
+        btnEsp.Text = config.espEnabled and "ESP: ON" or "ESP: OFF"
+        if not config.espEnabled then
+            -- remover todas as marcas temporariamente
+            for p, data in pairs(trackedMarkers) do
+                if data.billboard and data.billboard.Parent then
+                    data.billboard:Destroy()
+                end
+                if data.conn then
+                    data.conn:Disconnect()
+                end
+                trackedMarkers[p] = nil
+            end
+        end
+    end)
 
-local plusBtn = Instance.new("TextButton")
-plusBtn.Size = UDim2.new(0, 30, 0, 30)
-plusBtn.Position = UDim2.new(1, -50, 1, -40)
-plusBtn.Text = "+"
-plusBtn.Font = Enum.Font.SourceSansBold
-plusBtn.TextSize = 24
-plusBtn.TextColor3 = Color3.new(1,1,1)
-plusBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-plusBtn.Parent = frame
+    btnTeam.MouseButton1Click:Connect(function()
+        config.teamCheck = not config.teamCheck
+        btnTeam.Text = config.teamCheck and "TeamCheck: ON" or "TeamCheck: OFF"
+    end)
 
--- lógica
-local dragging = false
+    btnClose.MouseButton1Click:Connect(function()
+        -- PARA TUDO
+        running = false
 
-local function clamp(x, a, b)
-	return math.max(a, math.min(b, x))
+        -- destruir marcadores
+        for p, data in pairs(trackedMarkers) do
+            if data.billboard and data.billboard.Parent then
+                data.billboard:Destroy()
+            end
+            if data.conn then
+                data.conn:Disconnect()
+            end
+            trackedMarkers[p] = nil
+        end
+
+        -- destruir GUI
+        if screenGui and screenGui.Parent then
+            screenGui:Destroy()
+        end
+
+        -- opcional: desconectar listeners globais (se houver)
+        -- Como exemplo, nada mais fica rodando porque 'running' = false
+    end)
+
+    return screenGui
 end
 
-local function setFOV(fov)
-	fov = clamp(fov, MIN_FOV, MAX_FOV)
-	camera.FieldOfView = fov
-	valueLabel.Text = tostring(math.floor(fov))
-	local percent = (fov - MIN_FOV) / (MAX_FOV - MIN_FOV)
-	fill.Size = UDim2.new(percent, 0, 1, 0)
-	knob.Position = UDim2.new(percent, -10, 0.5, -10)
+-- cria/retorna billboard para um personagem
+local function createMarkerForCharacter(character)
+    if not character then return nil end
+    local head = character:FindFirstChild("Head") or character:FindFirstChildWhichIsA("BasePart")
+    if not head then return nil end
+
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "DebugMarker"
+    bb.Adornee = head
+    bb.Size = UDim2.new(0, 140, 0, 40)
+    bb.StudsOffset = Vector3.new(0, 2.2, 0)
+    bb.AlwaysOnTop = true
+    bb.Parent = head
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 0.4
+    label.BackgroundColor3 = Color3.fromRGB(0,0,0)
+    label.TextColor3 = Color3.new(1,1,1)
+    label.Font = Enum.Font.SourceSansBold
+    label.TextSize = 14
+    label.Text = ""
+    label.Parent = bb
+
+    return bb, label
 end
 
-setFOV(DEFAULT_FOV)
-
-local function getPercent(x)
-	local pos = bar.AbsolutePosition.X
-	local size = bar.AbsoluteSize.X
-	return clamp((x - pos) / size, 0, 1)
+-- atualiza (nome/distância) do marker
+local function updateMarker(player, label)
+    if not player or not label then return end
+    local char = player.Character
+    if not char then
+        label.Text = ""
+        return
+    end
+    local head = char:FindFirstChild("Head") or char:FindFirstChildWhichIsA("BasePart")
+    if not head then
+        label.Text = ""
+        return
+    end
+    local txt = player.Name
+    if config.showDistance and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head") then
+        local dist = (head.Position - LocalPlayer.Character.Head.Position).Magnitude
+        txt = txt .. string.format(" (%.1f)", dist)
+    end
+    label.Text = txt
 end
 
-knob.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragging = true
-	end
-end)
+-- cria e rastreia marker para um player
+local function trackPlayer(player)
+    if trackedMarkers[player] then return end
+    if not player.Character then return end
+    local char = player.Character
+    local bb, label = createMarkerForCharacter(char)
+    if not bb then return end
 
-UserInputService.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragging = false
-	end
-end)
+    -- conexão para destruir quando o character for removido
+    local conn
+    conn = player.CharacterRemoving:Connect(function()
+        if bb and bb.Parent then
+            bb:Destroy()
+        end
+        if conn then conn:Disconnect() end
+        trackedMarkers[player] = nil
+    end)
 
-UserInputService.InputChanged:Connect(function(input)
-	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-		local p = getPercent(input.Position.X)
-		local newFOV = MIN_FOV + (MAX_FOV - MIN_FOV) * p
-		setFOV(newFOV)
-	end
-end)
+    trackedMarkers[player] = {billboard = bb, label = label, conn = conn}
+    updateMarker(player, label)
+end
 
-bar.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		local p = getPercent(input.Position.X)
-		setFOV(MIN_FOV + (MAX_FOV - MIN_FOV) * p)
-	end
-end)
+-- limpa rastreamento de jogadores que sumiram
+local function cleanDeadTracks()
+    for p, data in pairs(trackedMarkers) do
+        if not p or not p.Parent or not p.Character then
+            if data.billboard and data.billboard.Parent then data.billboard:Destroy() end
+            if data.conn then data.conn:Disconnect() end
+            trackedMarkers[p] = nil
+        end
+    end
+end
 
-minusBtn.MouseButton1Click:Connect(function()
-	setFOV(camera.FieldOfView - 5)
-end)
+-- decide se deve mostrar o jogador (team check)
+local function shouldShow(player)
+    if player == LocalPlayer then return false end
+    if not player.Character then return false end
+    if config.teamCheck and LocalPlayer.Team then
+        if player.Team == LocalPlayer.Team then
+            return false
+        end
+    end
+    return true
+end
 
-plusBtn.MouseButton1Click:Connect(function()
-	setFOV(camera.FieldOfView + 5)
-end)
+-- atualizador principal
+local function mainLoop()
+    lastUpdate = 0
+    while running do
+        local dt = RunService.RenderStepped:Wait()
+        lastUpdate = lastUpdate + dt
+        if lastUpdate < config.updateRate then
+            continue
+        end
+        lastUpdate = 0
 
-UserInputService.InputBegan:Connect(function(input, gpe)
-	if gpe then return end
-	if input.KeyCode == TOGGLE_KEY then
-		screenGui.Enabled = not screenGui.Enabled
-	end
+        if not config.espEnabled then
+            continue
+        end
+
+        -- varre jogadores
+        for _, player in pairs(Players:GetPlayers()) do
+            if shouldShow(player) then
+                if player.Character and not trackedMarkers[player] then
+                    trackPlayer(player)
+                end
+            else
+                -- remover se estiver sendo rastreado mas não deve mostrar
+                if trackedMarkers[player] then
+                    local data = trackedMarkers[player]
+                    if data.billboard and data.billboard.Parent then data.billboard:Destroy() end
+                    if data.conn then data.conn:Disconnect() end
+                    trackedMarkers[player] = nil
+                end
+            end
+        end
+
+        -- atualizar textos das marcas
+        for p, data in pairs(trackedMarkers) do
+            if data and data.label then
+                updateMarker(p, data.label)
+            end
+        end
+
+        cleanDeadTracks()
+    end
+end
+
+-- criar GUI e iniciar
+gui = createGui()
+spawn(mainLoop)
+
+-- limpeza se o jogador sair
+Players.PlayerRemoving:Connect(function(plr)
+    if trackedMarkers[plr] then
+        if trackedMarkers[plr].billboard and trackedMarkers[plr].billboard.Parent then
+            trackedMarkers[plr].billboard:Destroy()
+        end
+        if trackedMarkers[plr].conn then trackedMarkers[plr].conn:Disconnect() end
+        trackedMarkers[plr] = nil
+    end
 end)
