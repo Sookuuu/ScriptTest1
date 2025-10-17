@@ -1,185 +1,356 @@
--- LocalScript educativo: cria uma UI com botão de fechar e controle de FOV
--- Uso: Colocar em StarterPlayerScripts
--- Nota: Este script NÃO implementa ESP nem pulo infinito (funcionalidades de trapaça).
+-- LocalScript para uso educativo / testes locais (colocar em StarterPlayerScripts)
+-- Funcionalidades:
+--  - Interface com botão de fechar (limpa tudo)
+--  - Slider para ajustar FOV, restaura FOV original ao fechar
+--  - Toggle de "Highlight Tagged" (aplica Highlight apenas em instâncias com a tag "DebugHighlight")
+--  - Toggle de "Infinite Jump" QUE FUNCIONA SOMENTE NO STUDIO (segurança: não funcionará em servidores públicos)
+-- Observação: NÃO inclui ESP para jogadores em servidores públicos nem pulo infinito em ambientes online.
+-- Uso do Highlight: marque objetos no Workspace com CollectionService:AddTag(obj, "DebugHighlight") no Studio.
+
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CollectionService = game:GetService("CollectionService")
+
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local camera = workspace.CurrentCamera
 
--- guarda FOV original para restauração
-local originalFOV = camera.FieldOfView
+-- guarda FOV original para restaurar
+local originalFOV = camera and camera.FieldOfView or 70
 
--- armazenar conexões pra limpar depois
 local connections = {}
+local highlightMap = {} -- [instance] = highlightInstance
 
--- cria ScreenGui
+-- Funções para highlights baseados em tag "DebugHighlight"
+local function createHighlightFor(inst)
+    if not inst or not inst:IsA("BasePart") and not inst:IsA("Model") then return end
+    if highlightMap[inst] then return end
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "DebugHighlightInstance"
+    highlight.Adornee = inst
+    highlight.FillColor = Color3.fromRGB(255, 200, 60)
+    highlight.FillTransparency = 0.6
+    highlight.OutlineColor = Color3.fromRGB(255, 150, 0)
+    highlight.OutlineTransparency = 0.3
+    highlight.Parent = playerGui -- mantemos no PlayerGui
+    highlightMap[inst] = highlight
+end
+
+local function removeHighlightFor(inst)
+    local h = highlightMap[inst]
+    if h then
+        pcall(function() h:Destroy() end)
+        highlightMap[inst] = nil
+    end
+end
+
+local function refreshTaggedHighlights()
+    -- remove highlights para instâncias que perderam a tag ou foram destruídas
+    for inst, _ in pairs(highlightMap) do
+        if not inst or not CollectionService:HasTag(inst, "DebugHighlight") then
+            removeHighlightFor(inst)
+        end
+    end
+    -- cria highlights para todas as instâncias atualmente taggeadas
+    for _, inst in ipairs(CollectionService:GetTagged("DebugHighlight")) do
+        if inst and not highlightMap[inst] then
+            createHighlightFor(inst)
+        end
+    end
+end
+
+-- UI
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "SafeCustomUI"
+screenGui.Name = "DebugCustomUI"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
--- Frame principal
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 360, 0, 160)
-mainFrame.Position = UDim2.new(0.5, -180, 0.5, -80)
+mainFrame.Size = UDim2.new(0, 420, 0, 180)
+mainFrame.Position = UDim2.new(0.5, -210, 0.5, -90)
 mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.BorderSizePixel = 0
 mainFrame.Parent = screenGui
 
--- Corner & UIStroke (visual)
-local corner = Instance.new("UICorner", mainFrame)
-corner.CornerRadius = UDim.new(0, 8)
-local stroke = Instance.new("UIStroke", mainFrame)
-stroke.Color = Color3.fromRGB(45, 45, 45)
-stroke.Thickness = 1
+local UICorner = Instance.new("UICorner", mainFrame)
+UICorner.CornerRadius = UDim.new(0, 8)
 
--- Title
 local title = Instance.new("TextLabel")
-title.Name = "Title"
 title.Size = UDim2.new(1, -16, 0, 28)
 title.Position = UDim2.new(0, 8, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "Painel de Controle (educativo)"
+title.Text = "Painel de Testes (local / Studio)"
 title.TextColor3 = Color3.fromRGB(240, 240, 240)
 title.Font = Enum.Font.SourceSansBold
 title.TextSize = 18
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = mainFrame
 
--- Close button
 local closeBtn = Instance.new("TextButton")
 closeBtn.Name = "CloseButton"
 closeBtn.Size = UDim2.new(0, 36, 0, 24)
 closeBtn.Position = UDim2.new(1, -44, 0, 8)
-closeBtn.AnchorPoint = Vector2.new(0, 0)
 closeBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
 closeBtn.Text = "X"
 closeBtn.TextColor3 = Color3.new(1,1,1)
 closeBtn.Font = Enum.Font.SourceSansBold
 closeBtn.TextSize = 18
 closeBtn.Parent = mainFrame
-local closeCorner = Instance.new("UICorner", closeBtn)
-closeCorner.CornerRadius = UDim.new(0,6)
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0,6)
 
--- FOV label
+-- FOV slider label
 local fovLabel = Instance.new("TextLabel")
 fovLabel.Name = "FOVLabel"
 fovLabel.Size = UDim2.new(0, 200, 0, 22)
 fovLabel.Position = UDim2.new(0, 12, 0, 48)
 fovLabel.BackgroundTransparency = 1
-fovLabel.Text = "FOV (Field of View):"
+fovLabel.Text = "FOV: " .. tostring(math.floor(originalFOV))
 fovLabel.TextColor3 = Color3.fromRGB(220,220,220)
 fovLabel.Font = Enum.Font.SourceSans
 fovLabel.TextSize = 16
 fovLabel.TextXAlignment = Enum.TextXAlignment.Left
 fovLabel.Parent = mainFrame
 
--- TextBox para valor de FOV
-local fovBox = Instance.new("TextBox")
-fovBox.Name = "FOVBox"
-fovBox.Size = UDim2.new(0, 100, 0, 28)
-fovBox.Position = UDim2.new(0, 150, 0, 44)
-fovBox.Text = tostring(math.floor(originalFOV))
-fovBox.PlaceholderText = "Ex: 70"
-fovBox.ClearTextOnFocus = false
-fovBox.BackgroundColor3 = Color3.fromRGB(240,240,240)
-fovBox.TextColor3 = Color3.fromRGB(20,20,20)
-fovBox.Font = Enum.Font.SourceSans
-fovBox.TextSize = 16
-fovBox.Parent = mainFrame
-local fovBoxCorner = Instance.new("UICorner", fovBox)
-fovBoxCorner.CornerRadius = UDim.new(0,4)
+-- FOV slider track
+local sliderTrack = Instance.new("Frame")
+sliderTrack.Name = "SliderTrack"
+sliderTrack.Size = UDim2.new(0, 320, 0, 10)
+sliderTrack.Position = UDim2.new(0, 12, 0, 76)
+sliderTrack.BackgroundColor3 = Color3.fromRGB(50,50,50)
+sliderTrack.Parent = mainFrame
+Instance.new("UICorner", sliderTrack).CornerRadius = UDim.new(1,0)
 
--- Apply button
-local applyBtn = Instance.new("TextButton")
-applyBtn.Name = "ApplyFOV"
-applyBtn.Size = UDim2.new(0, 80, 0, 28)
-applyBtn.Position = UDim2.new(0, 260, 0, 44)
-applyBtn.Text = "Aplicar"
-applyBtn.BackgroundColor3 = Color3.fromRGB(80, 160, 255)
-applyBtn.TextColor3 = Color3.new(1,1,1)
-applyBtn.Font = Enum.Font.SourceSansBold
-applyBtn.TextSize = 16
-applyBtn.Parent = mainFrame
-local applyCorner = Instance.new("UICorner", applyBtn)
-applyCorner.CornerRadius = UDim.new(0,4)
+local sliderFill = Instance.new("Frame")
+sliderFill.Name = "SliderFill"
+sliderFill.Size = UDim2.new((originalFOV - 10) / (120 - 10), 0, 1, 0)
+sliderFill.Position = UDim2.new(0, 0, 0, 0)
+sliderFill.BackgroundColor3 = Color3.fromRGB(80,160,255)
+sliderFill.Parent = sliderTrack
+Instance.new("UICorner", sliderFill).CornerRadius = UDim.new(1,0)
 
--- Info / aviso embaixo
-local info = Instance.new("TextLabel")
-info.Name = "Info"
-info.Size = UDim2.new(1, -16, 0, 36)
-info.Position = UDim2.new(0, 8, 1, -44)
-info.BackgroundTransparency = 1
-info.Text = "Este painel é educativo. Não implemente ESP/pulo infinito em servidores públicos."
-info.TextColor3 = Color3.fromRGB(200,200,200)
-info.Font = Enum.Font.SourceSansItalic
-info.TextSize = 12
-info.TextWrapped = true
-info.TextXAlignment = Enum.TextXAlignment.Left
-info.Parent = mainFrame
+local sliderKnob = Instance.new("ImageButton")
+sliderKnob.Name = "Knob"
+sliderKnob.Size = UDim2.new(0, 18, 0, 18)
+sliderKnob.Position = UDim2.new(sliderFill.Size.X.Scale, 0, 0.5, -9)
+sliderKnob.Image = ""
+sliderKnob.BackgroundColor3 = Color3.fromRGB(245,245,245)
+sliderKnob.Parent = sliderTrack
+Instance.new("UICorner", sliderKnob).CornerRadius = UDim.new(1,0)
 
--- Função para aplicar FOV com validação
-local function applyFOVFromText(text)
-    local val = tonumber(text)
-    if not val then
-        -- invalid
-        fovBox.Text = tostring(math.floor(camera.FieldOfView))
-        return
-    end
-    -- clamp valor (evita valores absurdos)
-    val = math.clamp(val, 10, 120)
-    camera.FieldOfView = val
-    fovBox.Text = tostring(math.floor(val))
+-- studio-only infinite jump toggle
+local ijLabel = Instance.new("TextLabel")
+ijLabel.Size = UDim2.new(0, 220, 0, 22)
+ijLabel.Position = UDim2.new(0, 12, 0, 104)
+ijLabel.BackgroundTransparency = 1
+ijLabel.Text = "Infinite Jump (Studio only):"
+ijLabel.TextColor3 = Color3.fromRGB(220,220,220)
+ijLabel.Font = Enum.Font.SourceSans
+ijLabel.TextSize = 16
+ijLabel.TextXAlignment = Enum.TextXAlignment.Left
+ijLabel.Parent = mainFrame
+
+local ijToggle = Instance.new("TextButton")
+ijToggle.Name = "IJToggle"
+ijToggle.Size = UDim2.new(0, 60, 0, 24)
+ijToggle.Position = UDim2.new(0, 240, 0, 100)
+ijToggle.Text = "Off"
+ijToggle.BackgroundColor3 = Color3.fromRGB(90,90,90)
+ijToggle.TextColor3 = Color3.fromRGB(240,240,240)
+ijToggle.Font = Enum.Font.SourceSansBold
+ijToggle.TextSize = 14
+ijToggle.Parent = mainFrame
+Instance.new("UICorner", ijToggle).CornerRadius = UDim.new(0,6)
+
+local studioWarning = Instance.new("TextLabel")
+studioWarning.Size = UDim2.new(1, -16, 0, 18)
+studioWarning.Position = UDim2.new(0, 8, 1, -26)
+studioWarning.BackgroundTransparency = 1
+studioWarning.Text = RunService:IsStudio() and "Rodando no Studio" or "Aviso: Infinite Jump só funciona no Studio para segurança."
+studioWarning.TextColor3 = Color3.fromRGB(200,200,120)
+studioWarning.Font = Enum.Font.SourceSansItalic
+studioWarning.TextSize = 12
+studioWarning.TextXAlignment = Enum.TextXAlignment.Left
+studioWarning.Parent = mainFrame
+
+-- Highlight toggle (para instâncias com tag "DebugHighlight")
+local hlLabel = Instance.new("TextLabel")
+hlLabel.Size = UDim2.new(0, 220, 0, 22)
+hlLabel.Position = UDim2.new(0, 12, 0, 136)
+hlLabel.BackgroundTransparency = 1
+hlLabel.Text = "Highlight (tag: DebugHighlight):"
+hlLabel.TextColor3 = Color3.fromRGB(220,220,220)
+hlLabel.Font = Enum.Font.SourceSans
+hlLabel.TextSize = 16
+hlLabel.TextXAlignment = Enum.TextXAlignment.Left
+hlLabel.Parent = mainFrame
+
+local hlToggle = Instance.new("TextButton")
+hlToggle.Name = "HLToggle"
+hlToggle.Size = UDim2.new(0, 60, 0, 24)
+hlToggle.Position = UDim2.new(0, 240, 0, 132)
+hlToggle.Text = "Off"
+hlToggle.BackgroundColor3 = Color3.fromRGB(90,90,90)
+hlToggle.TextColor3 = Color3.fromRGB(240,240,240)
+hlToggle.Font = Enum.Font.SourceSansBold
+hlToggle.TextSize = 14
+hlToggle.Parent = mainFrame
+Instance.new("UICorner", hlToggle).CornerRadius = UDim.new(0,6)
+
+-- Estado
+local dragging = false
+local infiniteJumpEnabled = false
+local highlightsEnabled = false
+
+-- Helpers
+local function setFOVFromPercent(percent)
+    percent = math.clamp(percent, 0, 1)
+    local minFOV, maxFOV = 10, 120
+    local value = minFOV + (maxFOV - minFOV) * percent
+    camera.FieldOfView = value
+    fovLabel.Text = "FOV: " .. tostring(math.floor(value))
+    sliderFill.Size = UDim2.new(percent, 0, 1, 0)
+    sliderKnob.Position = UDim2.new(percent, 0, 0.5, -9)
 end
 
--- aplicar ao clicar
-table.insert(connections, applyBtn.MouseButton1Click:Connect(function()
-    applyFOVFromText(fovBox.Text)
+local function getSliderPercentFromPosition(absX)
+    local trackPos = sliderTrack.AbsolutePosition.X
+    local trackWidth = sliderTrack.AbsoluteSize.X
+    local t = (absX - trackPos) / trackWidth
+    return math.clamp(t, 0, 1)
+end
+
+-- Eventos do slider
+table.insert(connections, sliderKnob.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
 end))
 
--- aplicar ao perder foco (enter/aceitar)
-table.insert(connections, fovBox.FocusLost:Connect(function(enterPressed)
-    if enterPressed then
-        applyFOVFromText(fovBox.Text)
+table.insert(connections, UserInputService.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local percent = getSliderPercentFromPosition(input.Position.X)
+        setFOVFromPercent(percent)
+    end
+end))
+
+table.insert(connections, UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end))
+
+-- Ajusta inicialmente o slider com base no FOV atual
+do
+    local minFOV, maxFOV = 10, 120
+    local percent = math.clamp((camera.FieldOfView - minFOV) / (maxFOV - minFOV), 0, 1)
+    setFOVFromPercent(percent)
+end
+
+-- Infinite jump (Studio-only)
+table.insert(connections, ijToggle.MouseButton1Click:Connect(function()
+    if not RunService:IsStudio() then
+        ijToggle.Text = "Off"
+        infiniteJumpEnabled = false
+        studioWarning.Text = "Aviso: Infinite Jump só funciona no Studio para segurança."
+        return
+    end
+    infiniteJumpEnabled = not infiniteJumpEnabled
+    ijToggle.Text = infiniteJumpEnabled and "On" or "Off"
+    ijToggle.BackgroundColor3 = infiniteJumpEnabled and Color3.fromRGB(80,160,80) or Color3.fromRGB(90,90,90)
+end))
+
+table.insert(connections, UserInputService.JumpRequest:Connect(function()
+    if not infiniteJumpEnabled then return end
+    local char = player.Character
+    if not char then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if humanoid and humanoid.Health > 0 then
+        -- Força o estado de pulo. Em Studio apenas.
+        pcall(function()
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        end)
+    end
+end))
+
+-- Highlight toggles e sinais de tag
+local tagAddedConn, tagRemovedConn
+local function enableHighlights()
+    highlightsEnabled = true
+    hlToggle.Text = "On"
+    hlToggle.BackgroundColor3 = Color3.fromRGB(80,160,80)
+    refreshTaggedHighlights()
+    -- conectar sinais
+    tagAddedConn = CollectionService:GetInstanceAddedSignal("DebugHighlight"):Connect(function(inst)
+        createHighlightFor(inst)
+    end)
+    tagRemovedConn = CollectionService:GetInstanceRemovedSignal("DebugHighlight"):Connect(function(inst)
+        removeHighlightFor(inst)
+    end)
+    table.insert(connections, tagAddedConn)
+    table.insert(connections, tagRemovedConn)
+end
+
+local function disableHighlights()
+    highlightsEnabled = false
+    hlToggle.Text = "Off"
+    hlToggle.BackgroundColor3 = Color3.fromRGB(90,90,90)
+    -- remove todos highlights
+    for inst, _ in pairs(highlightMap) do
+        removeHighlightFor(inst)
+    end
+    -- disconnect tag signals (they are in connections list and will be disconnected on cleanup)
+end
+
+table.insert(connections, hlToggle.MouseButton1Click:Connect(function()
+    if not highlightsEnabled then
+        enableHighlights()
     else
-        -- restaura text para o valor atual se o usuário apenas clicou fora
-        fovBox.Text = tostring(math.floor(camera.FieldOfView))
+        disableHighlights()
     end
 end))
 
--- função para fechar e limpar tudo
+-- Função de limpeza
 local function cleanup()
-    -- restaura FOV original
-    if camera and camera:IsA("Camera") then
-        camera.FieldOfView = originalFOV
-    end
+    -- restaura FOV
+    pcall(function()
+        if camera and camera:IsA("Camera") then
+            camera.FieldOfView = originalFOV
+        end
+    end)
     -- desconecta conexões
     for _, con in ipairs(connections) do
         if con and typeof(con) == "RBXScriptConnection" then
             pcall(function() con:Disconnect() end)
         end
     end
+    connections = {}
+    -- remove highlights
+    for inst, _ in pairs(highlightMap) do
+        removeHighlightFor(inst)
+    end
     -- destrói UI
     if screenGui and screenGui.Parent then
-        screenGui:Destroy()
+        pcall(function() screenGui:Destroy() end)
     end
 end
 
--- botão fechar
 table.insert(connections, closeBtn.MouseButton1Click:Connect(function()
     cleanup()
 end))
 
--- limpeza automática ao sair do jogador (precaução)
+-- Limpa automaticamente se o jogador sair
 table.insert(connections, player.AncestryChanged:Connect(function()
     if not player:IsDescendantOf(game) then
         cleanup()
     end
 end))
 
--- mensagem opcional no output para feedback
-print("[SafeCustomUI] Interface carregada. Use o campo de FOV para ajustar e X para fechar.")
-
--- fim do script
+print("[DebugCustomUI] Interface carregada. Use 'DebugHighlight' tag em objetos no Workspace para ver highlights. Infinite Jump funciona apenas no Studio.")
