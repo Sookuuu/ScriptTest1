@@ -1,44 +1,30 @@
--- LocalScript: ESP, Infinite Jump, Menu arrastável + minimizar
+-- LocalScript: ESP simples com nome e cor do time
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
-local camera = workspace.CurrentCamera
 
-local espEnabled = false
-local infiniteJumpEnabled = false
-local menuOpen = true
 local playerESPMap = {}
 
--- ===== Funções ESP =====
+-- Função pra pegar a cor do time
 local function getPlayerColor(p)
     if p.Team and p.Team.TeamColor then
         return p.Team.TeamColor.Color
     end
-    return Color3.fromRGB(255,0,0)
+    return Color3.fromRGB(255,255,255) -- fallback branco
 end
 
+-- Criar ESP para um player
 local function createESPFor(p)
     if playerESPMap[p] then return end
     if not p.Character then return end
     local head = p.Character:FindFirstChild("Head")
     if not head then return end
 
-    -- Highlight
-    local highlight = Instance.new("Highlight")
-    highlight.Adornee = p.Character
-    highlight.FillColor = getPlayerColor(p)
-    highlight.FillTransparency = 0.6
-    highlight.OutlineColor = getPlayerColor(p)
-    highlight.OutlineTransparency = 0.3
-    highlight.Parent = playerGui
-
-    -- Nome pequeno
     local billboard = Instance.new("BillboardGui")
     billboard.Adornee = head
-    billboard.Size = UDim2.new(0, 100, 0, 10)
+    billboard.Size = UDim2.new(0,100,0,10)
     billboard.StudsOffset = Vector3.new(0,2.5,0)
     billboard.AlwaysOnTop = true
     billboard.Parent = playerGui
@@ -53,143 +39,54 @@ local function createESPFor(p)
     textLabel.TextStrokeTransparency = 0.6
     textLabel.Parent = billboard
 
-    playerESPMap[p] = {highlight=highlight, label=billboard}
+    playerESPMap[p] = billboard
+
+    -- Remove ESP quando personagem for removido
+    p.CharacterRemoving:Connect(function()
+        if playerESPMap[p] then
+            pcall(function() playerESPMap[p]:Destroy() end)
+            playerESPMap[p] = nil
+        end
+    end)
 end
 
+-- Remover ESP de player
 local function removeESPFor(p)
-    local data = playerESPMap[p]
-    if data then
-        pcall(function()
-            if data.highlight then data.highlight:Destroy() end
-            if data.label then data.label:Destroy() end
-        end)
+    if playerESPMap[p] then
+        pcall(function() playerESPMap[p]:Destroy() end)
         playerESPMap[p] = nil
     end
 end
 
+-- Atualizar ESP de todos os players
 local function refreshESP()
-    if not espEnabled then return end
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= player then createESPFor(p) end
+    for _,p in pairs(Players:GetPlayers()) do
+        if p ~= player and p.Character then
+            createESPFor(p)
+            -- atualiza a cor do nome caso mude de time
+            local label = playerESPMap[p] and playerESPMap[p]:FindFirstChildOfClass("TextLabel")
+            if label then
+                label.TextColor3 = getPlayerColor(p)
+            end
+        end
     end
+    -- limpa ESP de players que saíram
     for p,_ in pairs(playerESPMap) do
-        if not p.Parent or not p.Character then removeESPFor(p) end
+        if not p.Parent or not p.Character then
+            removeESPFor(p)
+        end
     end
 end
 
--- Atualiza ESP sempre
-RunService.Heartbeat:Connect(function()
-    if espEnabled then refreshESP() end
+-- Atualiza sempre
+RunService.Heartbeat:Connect(refreshESP)
+
+-- Criar ESP ao entrar no servidor
+Players.PlayerAdded:Connect(function(p)
+    p.CharacterAdded:Connect(function()
+        refreshESP()
+    end)
 end)
 
--- ===== UI =====
-local screenGui = Instance.new("ScreenGui", playerGui)
-screenGui.Name = "DebugUI"
-
-local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 420, 0, 200)
-mainFrame.Position = UDim2.new(0.5, -210, 0.5, -100)
-mainFrame.AnchorPoint = Vector2.new(0.5,0.5)
-mainFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
-mainFrame.Parent = screenGui
-Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0,8)
-
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -16, 0, 28)
-title.Position = UDim2.new(0,8,0,8)
-title.BackgroundTransparency = 1
-title.Text = "Painel"
-title.TextColor3 = Color3.fromRGB(240,240,240)
-title.Font = Enum.Font.SourceSansBold
-title.TextSize = 18
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = mainFrame
-
--- Close button
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0,36,0,24)
-closeBtn.Position = UDim2.new(1,-44,0,8)
-closeBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
-closeBtn.Text = "X"
-closeBtn.TextColor3 = Color3.new(1,1,1)
-closeBtn.Font = Enum.Font.SourceSansBold
-closeBtn.TextSize = 18
-closeBtn.Parent = mainFrame
-Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0,6)
-closeBtn.MouseButton1Click:Connect(function()
-    for p,_ in pairs(playerESPMap) do removeESPFor(p) end
-    screenGui:Destroy()
-end)
-
--- ESP toggle
-local espToggle = Instance.new("TextButton")
-espToggle.Size = UDim2.new(0,120,0,28)
-espToggle.Position = UDim2.new(0,12,0,48)
-espToggle.BackgroundColor3 = Color3.fromRGB(90,90,90)
-espToggle.TextColor3 = Color3.fromRGB(240,240,240)
-espToggle.Text = "ESP: Off"
-espToggle.Font = Enum.Font.SourceSansBold
-espToggle.TextSize = 14
-espToggle.Parent = mainFrame
-Instance.new("UICorner", espToggle).CornerRadius = UDim.new(0,6)
-
-espToggle.MouseButton1Click:Connect(function()
-    espEnabled = not espEnabled
-    espToggle.Text = "ESP: "..(espEnabled and "On" or "Off")
-    espToggle.BackgroundColor3 = espEnabled and Color3.fromRGB(80,160,80) or Color3.fromRGB(90,90,90)
-end)
-
--- Infinite Jump toggle
-local ijToggle = Instance.new("TextButton")
-ijToggle.Size = UDim2.new(0,120,0,28)
-ijToggle.Position = UDim2.new(0,12,0,88)
-ijToggle.BackgroundColor3 = Color3.fromRGB(90,90,90)
-ijToggle.TextColor3 = Color3.fromRGB(240,240,240)
-ijToggle.Text = "Infinite Jump: Off"
-ijToggle.Font = Enum.Font.SourceSansBold
-ijToggle.TextSize = 14
-ijToggle.Parent = mainFrame
-Instance.new("UICorner", ijToggle).CornerRadius = UDim.new(0,6)
-
-ijToggle.MouseButton1Click:Connect(function()
-    infiniteJumpEnabled = not infiniteJumpEnabled
-    ijToggle.Text = "Infinite Jump: "..(infiniteJumpEnabled and "On" or "Off")
-    ijToggle.BackgroundColor3 = infiniteJumpEnabled and Color3.fromRGB(80,160,80) or Color3.fromRGB(90,90,90)
-end)
-
-UserInputService.JumpRequest:Connect(function()
-    if infiniteJumpEnabled then
-        local char = player.Character
-        if char then
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum and hum.Health>0 then pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end) end
-        end
-    end
-end)
-
--- Drag menu
-local dragging = false
-local dragOffset = Vector2.new(0,0)
-mainFrame.InputBegan:Connect(function(input)
-    if input.UserInputType==Enum.UserInputType.MouseButton1 then
-        dragging=true
-        dragOffset = input.Position - mainFrame.AbsolutePosition
-        input.Changed:Connect(function()
-            if input.UserInputState==Enum.UserInputState.End then dragging=false end
-        end)
-    end
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and input.UserInputType==Enum.UserInputType.MouseMovement then
-        mainFrame.Position = UDim2.new(0, input.Position.X - dragOffset.X, 0, input.Position.Y - dragOffset.Y)
-    end
-end)
-
--- Minimizar/abrir com M
-UserInputService.InputBegan:Connect(function(input,gpe)
-    if gpe then return end
-    if input.KeyCode==Enum.KeyCode.M then
-        menuOpen = not menuOpen
-        mainFrame.Visible = menuOpen
-    end
-end)
+-- Remove ESP quando player sai
+Players.PlayerRemoving:Connect(removeESPFor)
