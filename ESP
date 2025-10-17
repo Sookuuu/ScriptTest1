@@ -1,0 +1,109 @@
+-- LocalScript para ESP educativo/teste local
+-- Ativa/desativa com a tecla M
+-- Atualiza com jogadores entrando, saindo ou morrendo
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CollectionService = game:GetService("CollectionService")
+
+local LocalPlayer = Players.LocalPlayer
+local ESPs = {}
+local ESPEnabled = false
+
+-- Função para criar ESP para um jogador
+local function createESP(player)
+	if ESPs[player] then return end -- já tem ESP
+	local box = Instance.new("BillboardGui")
+	box.Name = "ESP"
+	box.Adornee = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	box.Size = UDim2.new(0,100,0,30)
+	box.AlwaysOnTop = true
+	
+	local label = Instance.new("TextLabel")
+	label.BackgroundTransparency = 1
+	label.Size = UDim2.new(1,0,1,0)
+	label.TextScaled = true
+	label.TextColor3 = Color3.fromRGB(255,255,255)
+	label.Font = Enum.Font.SourceSans
+	label.Parent = box
+	box.Parent = game.CoreGui -- ou StarterGui para testes locais
+	
+	ESPs[player] = {Box = box, Label = label}
+end
+
+-- Atualiza posição e cor do ESP
+local function updateESP(player)
+	local esp = ESPs[player]
+	if not esp then return end
+	if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+		esp.Box.Adornee = player.Character.HumanoidRootPart
+		local teamColor = player.TeamColor.Color
+		local teamName = player.Team and player.Team.Name or "NoTeam"
+		esp.Label.Text = player.Name:lower().." ["..teamName:lower().."]"
+		esp.Label.TextColor3 = teamColor
+	else
+		esp.Box.Adornee = nil
+	end
+end
+
+-- Remove ESP
+local function removeESP(player)
+	if ESPs[player] then
+		ESPs[player].Box:Destroy()
+		ESPs[player] = nil
+	end
+end
+
+-- Ativa/desativa ESP
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.M then
+		ESPEnabled = not ESPEnabled
+		if not ESPEnabled then
+			for _, esp in pairs(ESPs) do
+				esp.Box:Destroy()
+			end
+			ESPs = {}
+		else
+			for _, player in pairs(Players:GetPlayers()) do
+				if player ~= LocalPlayer then
+					createESP(player)
+				end
+			end
+		end
+	end
+end)
+
+-- Atualiza ESP a cada frame
+RunService.RenderStepped:Connect(function()
+	if ESPEnabled then
+		for player, _ in pairs(ESPs) do
+			updateESP(player)
+		end
+	end
+end)
+
+-- Monitora jogadores entrando/sair do jogo
+Players.PlayerAdded:Connect(function(player)
+	if ESPEnabled then
+		createESP(player)
+	end
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	removeESP(player)
+end)
+
+-- Monitora respawn
+Players.PlayerRemoving:Connect(function(player)
+	removeESP(player)
+end)
+
+Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function()
+		if ESPEnabled then
+			updateESP(player)
+		end
+	end)
+end)
