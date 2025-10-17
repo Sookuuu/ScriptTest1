@@ -1,15 +1,23 @@
--- LocalScript: Painel de Testes com ESP, TeamCheck, Infinite Jump e nomes
+-- LocalScript: Painel de Testes com ESP, TeamCheck e Infinite Jump
+-- Uso educativo / Studio / Testes autorizados
+-- Funcionalidades: Drag, Minimizar, Close, Infinite Jump, ESP atualizado, Refresh ESP
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local CollectionService = game:GetService("CollectionService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local camera = workspace.CurrentCamera
 
+local originalFOV = camera and camera.FieldOfView or 70
 local connections = {}
-local espMap = {} -- [player] = {highlight, nameLabel}
-local infiniteJumpEnabled = false
+local highlightMap = {} -- [instance] = Highlight
+local espMap = {} -- [player] = Highlight
+local dragging = false
 local menuOpen = true
+local infiniteJumpEnabled = false
+local highlightsEnabled = false
 
 -- ===== Funções ESP =====
 local function createESPFor(p)
@@ -18,8 +26,6 @@ local function createESPFor(p)
     if not char then return end
     local root = char:FindFirstChild("HumanoidRootPart")
     if not root then return end
-
-    -- Highlight
     local highlight = Instance.new("Highlight")
     highlight.Name = "ESP_"..p.Name
     highlight.Adornee = char
@@ -35,51 +41,29 @@ local function createESPFor(p)
         highlight.FillColor = Color3.fromRGB(255,0,0)
         highlight.OutlineColor = Color3.fromRGB(255,0,0)
     end
-
-    -- Nome acima da cabeça
-    local nameLabel = Instance.new("BillboardGui")
-    nameLabel.Name = "ESPName_"..p.Name
-    nameLabel.Adornee = char:FindFirstChild("Head") or root
-    nameLabel.Size = UDim2.new(0, 100, 0, 20)
-    nameLabel.StudsOffset = Vector3.new(0, 2.5, 0)
-    nameLabel.AlwaysOnTop = true
-    nameLabel.Parent = playerGui
-
-    local textLabel = Instance.new("TextLabel")
-    textLabel.Size = UDim2.new(1,0,1,0)
-    textLabel.BackgroundTransparency = 1
-    textLabel.Text = p.Name
-    textLabel.TextColor3 = highlight.FillColor
-    textLabel.Font = Enum.Font.SourceSansBold
-    textLabel.TextSize = 14
-    textLabel.TextScaled = false
-    textLabel.TextStrokeTransparency = 0.6
-    textLabel.Parent = nameLabel
-
-    espMap[p] = {highlight=highlight, nameLabel=nameLabel}
+    espMap[p] = highlight
 end
 
 local function removeESPFor(p)
-    local data = espMap[p]
-    if data then
-        pcall(function()
-            if data.highlight then data.highlight:Destroy() end
-            if data.nameLabel then data.nameLabel:Destroy() end
-        end)
+    local h = espMap[p]
+    if h then
+        pcall(function() h:Destroy() end)
         espMap[p] = nil
     end
 end
 
 local function refreshESP()
     for _, p in pairs(Players:GetPlayers()) do
-        if p ~= player then createESPFor(p) end
+        if p ~= player then
+            createESPFor(p)
+        end
     end
-    for p, _ in pairs(espMap) do
+    for p, h in pairs(espMap) do
         if not p.Parent then removeESPFor(p) end
     end
 end
 
--- Atualiza automaticamente quando jogadores entram, saem ou respawnam
+-- Atualiza quando jogador entra, sai ou respawna
 table.insert(connections, Players.PlayerAdded:Connect(function(p)
     createESPFor(p)
     table.insert(connections, p.CharacterAdded:Connect(function()
@@ -87,8 +71,12 @@ table.insert(connections, Players.PlayerAdded:Connect(function(p)
         createESPFor(p)
     end))
 end))
-table.insert(connections, Players.PlayerRemoving:Connect(removeESPFor))
 
+table.insert(connections, Players.PlayerRemoving:Connect(function(p)
+    removeESPFor(p)
+end))
+
+-- Inicializa ESP para jogadores já existentes
 refreshESP()
 
 -- ===== UI =====
@@ -98,6 +86,7 @@ screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
 local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
 mainFrame.Size = UDim2.new(0, 420, 0, 220)
 mainFrame.Position = UDim2.new(0.5, -210, 0.5, -110)
 mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -118,9 +107,9 @@ title.TextSize = 18
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = mainFrame
 
--- Botões
+-- Botão Fechar
 local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0,36,0,24)
+closeBtn.Size = UDim2.new(0, 36, 0, 24)
 closeBtn.Position = UDim2.new(1, -44, 0, 8)
 closeBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
 closeBtn.Text = "X"
@@ -130,8 +119,9 @@ closeBtn.TextSize = 18
 closeBtn.Parent = mainFrame
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0,6)
 
+-- Botão Drag
 local dragBtn = Instance.new("TextButton")
-dragBtn.Size = UDim2.new(0,28,0,28)
+dragBtn.Size = UDim2.new(0, 28, 0, 28)
 dragBtn.Position = UDim2.new(1, -80, 0, 8)
 dragBtn.BackgroundColor3 = Color3.fromRGB(100,100,100)
 dragBtn.Text = "⇅"
@@ -141,6 +131,7 @@ dragBtn.TextSize = 18
 dragBtn.Parent = mainFrame
 Instance.new("UICorner", dragBtn).CornerRadius = UDim.new(0,6)
 
+-- Botão Refresh ESP
 local refreshBtn = Instance.new("TextButton")
 refreshBtn.Size = UDim2.new(0, 100, 0, 28)
 refreshBtn.Position = UDim2.new(0, 12, 0, 48)
@@ -153,9 +144,10 @@ refreshBtn.Parent = mainFrame
 Instance.new("UICorner", refreshBtn).CornerRadius = UDim.new(0,6)
 table.insert(connections, refreshBtn.MouseButton1Click:Connect(refreshESP))
 
+-- Infinite Jump Toggle
 local ijToggle = Instance.new("TextButton")
 ijToggle.Size = UDim2.new(0, 120, 0, 28)
-ijToggle.Position = UDim2.new(0,12,0,88)
+ijToggle.Position = UDim2.new(0, 12, 0, 88)
 ijToggle.BackgroundColor3 = Color3.fromRGB(90,90,90)
 ijToggle.Text = "Infinite Jump: Off"
 ijToggle.TextColor3 = Color3.fromRGB(240,240,240)
@@ -170,14 +162,14 @@ table.insert(connections, ijToggle.MouseButton1Click:Connect(function()
     ijToggle.BackgroundColor3 = infiniteJumpEnabled and Color3.fromRGB(80,160,80) or Color3.fromRGB(90,90,90)
 end))
 
+-- Infinite Jump Handler
 table.insert(connections, UserInputService.JumpRequest:Connect(function()
     if not infiniteJumpEnabled then return end
     local char = player.Character
-    if char then
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if humanoid and humanoid.Health > 0 then
-            pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end)
-        end
+    if not char then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if humanoid and humanoid.Health > 0 then
+        pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end)
     end
 end))
 
@@ -216,11 +208,16 @@ local function cleanup()
         end
     end
     connections = {}
-    for p, _ in pairs(espMap) do
+    for p, h in pairs(espMap) do
         removeESPFor(p)
     end
+    for inst, h in pairs(highlightMap) do
+        pcall(function() h:Destroy() end)
+    end
+    espMap = {}
+    highlightMap = {}
     pcall(function() screenGui:Destroy() end)
 end
 closeBtn.MouseButton1Click:Connect(cleanup)
 
-print("[DebugCustomUI] Script carregado com ESP colorido por time, nome e Infinite Jump.")
+print("[DebugCustomUI] Script carregado com ESP, TeamCheck e Infinite Jump.")
