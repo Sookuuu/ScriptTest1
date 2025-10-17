@@ -1,280 +1,185 @@
--- Debug ESP UI (apenas para uso em seus próprios jogos - desenvolvimento/testes)
--- Coloque este LocalScript em StarterPlayerScripts
-
+-- LocalScript educativo: cria uma UI com botão de fechar e controle de FOV
+-- Uso: Colocar em StarterPlayerScripts
+-- Nota: Este script NÃO implementa ESP nem pulo infinito (funcionalidades de trapaça).
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local LocalPlayer = Players.LocalPlayer
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local camera = workspace.CurrentCamera
 
--- Config iniciais
-local config = {
-    espEnabled = true,
-    teamCheck = true,       -- se true, só mostra jogadores de time diferente
-    showDistance = true,
-    updateRate = 0.1,       -- segundos entre atualizações (economia de performance)
-}
+-- guarda FOV original para restauração
+local originalFOV = camera.FieldOfView
 
--- estado interno
-local running = true
-local gui
-local trackedMarkers = {}  -- [player] = {billboard, connection}
-local lastUpdate = 0
+-- armazenar conexões pra limpar depois
+local connections = {}
 
--- helper para criar UI
-local function createGui()
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "DebugESP_UI"
-    screenGui.ResetOnSpawn = false
-    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+-- cria ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "SafeCustomUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
 
-    local main = Instance.new("Frame")
-    main.Name = "Main"
-    main.Size = UDim2.new(0, 260, 0, 140)
-    main.Position = UDim2.new(0, 10, 0, 10)
-    main.BackgroundTransparency = 0.15
-    main.BackgroundColor3 = Color3.fromRGB(20,20,20)
-    main.BorderSizePixel = 0
-    main.AnchorPoint = Vector2.new(0,0)
-    main.Parent = screenGui
+-- Frame principal
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 360, 0, 160)
+mainFrame.Position = UDim2.new(0.5, -180, 0.5, -80)
+mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
 
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, -10, 0, 26)
-    title.Position = UDim2.new(0, 5, 0, 5)
-    title.BackgroundTransparency = 1
-    title.Text = "Debug Visualizer"
-    title.Font = Enum.Font.SourceSansBold
-    title.TextSize = 18
-    title.TextColor3 = Color3.new(1,1,1)
-    title.Parent = main
+-- Corner & UIStroke (visual)
+local corner = Instance.new("UICorner", mainFrame)
+corner.CornerRadius = UDim.new(0, 8)
+local stroke = Instance.new("UIStroke", mainFrame)
+stroke.Color = Color3.fromRGB(45, 45, 45)
+stroke.Thickness = 1
 
-    -- ESP Toggle
-    local btnEsp = Instance.new("TextButton")
-    btnEsp.Name = "ToggleESP"
-    btnEsp.Size = UDim2.new(0, 120, 0, 30)
-    btnEsp.Position = UDim2.new(0, 5, 0, 40)
-    btnEsp.Text = config.espEnabled and "ESP: ON" or "ESP: OFF"
-    btnEsp.Font = Enum.Font.SourceSans
-    btnEsp.TextSize = 16
-    btnEsp.Parent = main
+-- Title
+local title = Instance.new("TextLabel")
+title.Name = "Title"
+title.Size = UDim2.new(1, -16, 0, 28)
+title.Position = UDim2.new(0, 8, 0, 8)
+title.BackgroundTransparency = 1
+title.Text = "Painel de Controle (educativo)"
+title.TextColor3 = Color3.fromRGB(240, 240, 240)
+title.Font = Enum.Font.SourceSansBold
+title.TextSize = 18
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = mainFrame
 
-    -- TeamCheck Toggle
-    local btnTeam = Instance.new("TextButton")
-    btnTeam.Name = "ToggleTeam"
-    btnTeam.Size = UDim2.new(0, 120, 0, 30)
-    btnTeam.Position = UDim2.new(0, 135, 0, 40)
-    btnTeam.Text = config.teamCheck and "TeamCheck: ON" or "TeamCheck: OFF"
-    btnTeam.Font = Enum.Font.SourceSans
-    btnTeam.TextSize = 16
-    btnTeam.Parent = main
+-- Close button
+local closeBtn = Instance.new("TextButton")
+closeBtn.Name = "CloseButton"
+closeBtn.Size = UDim2.new(0, 36, 0, 24)
+closeBtn.Position = UDim2.new(1, -44, 0, 8)
+closeBtn.AnchorPoint = Vector2.new(0, 0)
+closeBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.new(1,1,1)
+closeBtn.Font = Enum.Font.SourceSansBold
+closeBtn.TextSize = 18
+closeBtn.Parent = mainFrame
+local closeCorner = Instance.new("UICorner", closeBtn)
+closeCorner.CornerRadius = UDim.new(0,6)
 
-    -- Close Button (fecha tudo e para o script)
-    local btnClose = Instance.new("TextButton")
-    btnClose.Name = "CloseAll"
-    btnClose.Size = UDim2.new(1, -10, 0, 32)
-    btnClose.Position = UDim2.new(0, 5, 0, 85)
-    btnClose.Text = "Fechar (para tudo)"
-    btnClose.Font = Enum.Font.SourceSansBold
-    btnClose.TextSize = 16
-    btnClose.BackgroundColor3 = Color3.fromRGB(180,50,50)
-    btnClose.TextColor3 = Color3.new(1,1,1)
-    btnClose.Parent = main
+-- FOV label
+local fovLabel = Instance.new("TextLabel")
+fovLabel.Name = "FOVLabel"
+fovLabel.Size = UDim2.new(0, 200, 0, 22)
+fovLabel.Position = UDim2.new(0, 12, 0, 48)
+fovLabel.BackgroundTransparency = 1
+fovLabel.Text = "FOV (Field of View):"
+fovLabel.TextColor3 = Color3.fromRGB(220,220,220)
+fovLabel.Font = Enum.Font.SourceSans
+fovLabel.TextSize = 16
+fovLabel.TextXAlignment = Enum.TextXAlignment.Left
+fovLabel.Parent = mainFrame
 
-    -- eventos UI
-    btnEsp.MouseButton1Click:Connect(function()
-        config.espEnabled = not config.espEnabled
-        btnEsp.Text = config.espEnabled and "ESP: ON" or "ESP: OFF"
-        if not config.espEnabled then
-            -- remover todas as marcas temporariamente
-            for p, data in pairs(trackedMarkers) do
-                if data.billboard and data.billboard.Parent then
-                    data.billboard:Destroy()
-                end
-                if data.conn then
-                    data.conn:Disconnect()
-                end
-                trackedMarkers[p] = nil
-            end
-        end
-    end)
+-- TextBox para valor de FOV
+local fovBox = Instance.new("TextBox")
+fovBox.Name = "FOVBox"
+fovBox.Size = UDim2.new(0, 100, 0, 28)
+fovBox.Position = UDim2.new(0, 150, 0, 44)
+fovBox.Text = tostring(math.floor(originalFOV))
+fovBox.PlaceholderText = "Ex: 70"
+fovBox.ClearTextOnFocus = false
+fovBox.BackgroundColor3 = Color3.fromRGB(240,240,240)
+fovBox.TextColor3 = Color3.fromRGB(20,20,20)
+fovBox.Font = Enum.Font.SourceSans
+fovBox.TextSize = 16
+fovBox.Parent = mainFrame
+local fovBoxCorner = Instance.new("UICorner", fovBox)
+fovBoxCorner.CornerRadius = UDim.new(0,4)
 
-    btnTeam.MouseButton1Click:Connect(function()
-        config.teamCheck = not config.teamCheck
-        btnTeam.Text = config.teamCheck and "TeamCheck: ON" or "TeamCheck: OFF"
-    end)
+-- Apply button
+local applyBtn = Instance.new("TextButton")
+applyBtn.Name = "ApplyFOV"
+applyBtn.Size = UDim2.new(0, 80, 0, 28)
+applyBtn.Position = UDim2.new(0, 260, 0, 44)
+applyBtn.Text = "Aplicar"
+applyBtn.BackgroundColor3 = Color3.fromRGB(80, 160, 255)
+applyBtn.TextColor3 = Color3.new(1,1,1)
+applyBtn.Font = Enum.Font.SourceSansBold
+applyBtn.TextSize = 16
+applyBtn.Parent = mainFrame
+local applyCorner = Instance.new("UICorner", applyBtn)
+applyCorner.CornerRadius = UDim.new(0,4)
 
-    btnClose.MouseButton1Click:Connect(function()
-        -- PARA TUDO
-        running = false
+-- Info / aviso embaixo
+local info = Instance.new("TextLabel")
+info.Name = "Info"
+info.Size = UDim2.new(1, -16, 0, 36)
+info.Position = UDim2.new(0, 8, 1, -44)
+info.BackgroundTransparency = 1
+info.Text = "Este painel é educativo. Não implemente ESP/pulo infinito em servidores públicos."
+info.TextColor3 = Color3.fromRGB(200,200,200)
+info.Font = Enum.Font.SourceSansItalic
+info.TextSize = 12
+info.TextWrapped = true
+info.TextXAlignment = Enum.TextXAlignment.Left
+info.Parent = mainFrame
 
-        -- destruir marcadores
-        for p, data in pairs(trackedMarkers) do
-            if data.billboard and data.billboard.Parent then
-                data.billboard:Destroy()
-            end
-            if data.conn then
-                data.conn:Disconnect()
-            end
-            trackedMarkers[p] = nil
-        end
-
-        -- destruir GUI
-        if screenGui and screenGui.Parent then
-            screenGui:Destroy()
-        end
-
-        -- opcional: desconectar listeners globais (se houver)
-        -- Como exemplo, nada mais fica rodando porque 'running' = false
-    end)
-
-    return screenGui
-end
-
--- cria/retorna billboard para um personagem
-local function createMarkerForCharacter(character)
-    if not character then return nil end
-    local head = character:FindFirstChild("Head") or character:FindFirstChildWhichIsA("BasePart")
-    if not head then return nil end
-
-    local bb = Instance.new("BillboardGui")
-    bb.Name = "DebugMarker"
-    bb.Adornee = head
-    bb.Size = UDim2.new(0, 140, 0, 40)
-    bb.StudsOffset = Vector3.new(0, 2.2, 0)
-    bb.AlwaysOnTop = true
-    bb.Parent = head
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 1, 0)
-    label.BackgroundTransparency = 0.4
-    label.BackgroundColor3 = Color3.fromRGB(0,0,0)
-    label.TextColor3 = Color3.new(1,1,1)
-    label.Font = Enum.Font.SourceSansBold
-    label.TextSize = 14
-    label.Text = ""
-    label.Parent = bb
-
-    return bb, label
-end
-
--- atualiza (nome/distância) do marker
-local function updateMarker(player, label)
-    if not player or not label then return end
-    local char = player.Character
-    if not char then
-        label.Text = ""
+-- Função para aplicar FOV com validação
+local function applyFOVFromText(text)
+    local val = tonumber(text)
+    if not val then
+        -- invalid
+        fovBox.Text = tostring(math.floor(camera.FieldOfView))
         return
     end
-    local head = char:FindFirstChild("Head") or char:FindFirstChildWhichIsA("BasePart")
-    if not head then
-        label.Text = ""
-        return
-    end
-    local txt = player.Name
-    if config.showDistance and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head") then
-        local dist = (head.Position - LocalPlayer.Character.Head.Position).Magnitude
-        txt = txt .. string.format(" (%.1f)", dist)
-    end
-    label.Text = txt
+    -- clamp valor (evita valores absurdos)
+    val = math.clamp(val, 10, 120)
+    camera.FieldOfView = val
+    fovBox.Text = tostring(math.floor(val))
 end
 
--- cria e rastreia marker para um player
-local function trackPlayer(player)
-    if trackedMarkers[player] then return end
-    if not player.Character then return end
-    local char = player.Character
-    local bb, label = createMarkerForCharacter(char)
-    if not bb then return end
+-- aplicar ao clicar
+table.insert(connections, applyBtn.MouseButton1Click:Connect(function()
+    applyFOVFromText(fovBox.Text)
+end))
 
-    -- conexão para destruir quando o character for removido
-    local conn
-    conn = player.CharacterRemoving:Connect(function()
-        if bb and bb.Parent then
-            bb:Destroy()
+-- aplicar ao perder foco (enter/aceitar)
+table.insert(connections, fovBox.FocusLost:Connect(function(enterPressed)
+    if enterPressed then
+        applyFOVFromText(fovBox.Text)
+    else
+        -- restaura text para o valor atual se o usuário apenas clicou fora
+        fovBox.Text = tostring(math.floor(camera.FieldOfView))
+    end
+end))
+
+-- função para fechar e limpar tudo
+local function cleanup()
+    -- restaura FOV original
+    if camera and camera:IsA("Camera") then
+        camera.FieldOfView = originalFOV
+    end
+    -- desconecta conexões
+    for _, con in ipairs(connections) do
+        if con and typeof(con) == "RBXScriptConnection" then
+            pcall(function() con:Disconnect() end)
         end
-        if conn then conn:Disconnect() end
-        trackedMarkers[player] = nil
-    end)
-
-    trackedMarkers[player] = {billboard = bb, label = label, conn = conn}
-    updateMarker(player, label)
-end
-
--- limpa rastreamento de jogadores que sumiram
-local function cleanDeadTracks()
-    for p, data in pairs(trackedMarkers) do
-        if not p or not p.Parent or not p.Character then
-            if data.billboard and data.billboard.Parent then data.billboard:Destroy() end
-            if data.conn then data.conn:Disconnect() end
-            trackedMarkers[p] = nil
-        end
+    end
+    -- destrói UI
+    if screenGui and screenGui.Parent then
+        screenGui:Destroy()
     end
 end
 
--- decide se deve mostrar o jogador (team check)
-local function shouldShow(player)
-    if player == LocalPlayer then return false end
-    if not player.Character then return false end
-    if config.teamCheck and LocalPlayer.Team then
-        if player.Team == LocalPlayer.Team then
-            return false
-        end
+-- botão fechar
+table.insert(connections, closeBtn.MouseButton1Click:Connect(function()
+    cleanup()
+end))
+
+-- limpeza automática ao sair do jogador (precaução)
+table.insert(connections, player.AncestryChanged:Connect(function()
+    if not player:IsDescendantOf(game) then
+        cleanup()
     end
-    return true
-end
+end))
 
--- atualizador principal
-local function mainLoop()
-    lastUpdate = 0
-    while running do
-        local dt = RunService.RenderStepped:Wait()
-        lastUpdate = lastUpdate + dt
-        if lastUpdate < config.updateRate then
-            continue
-        end
-        lastUpdate = 0
+-- mensagem opcional no output para feedback
+print("[SafeCustomUI] Interface carregada. Use o campo de FOV para ajustar e X para fechar.")
 
-        if not config.espEnabled then
-            continue
-        end
-
-        -- varre jogadores
-        for _, player in pairs(Players:GetPlayers()) do
-            if shouldShow(player) then
-                if player.Character and not trackedMarkers[player] then
-                    trackPlayer(player)
-                end
-            else
-                -- remover se estiver sendo rastreado mas não deve mostrar
-                if trackedMarkers[player] then
-                    local data = trackedMarkers[player]
-                    if data.billboard and data.billboard.Parent then data.billboard:Destroy() end
-                    if data.conn then data.conn:Disconnect() end
-                    trackedMarkers[player] = nil
-                end
-            end
-        end
-
-        -- atualizar textos das marcas
-        for p, data in pairs(trackedMarkers) do
-            if data and data.label then
-                updateMarker(p, data.label)
-            end
-        end
-
-        cleanDeadTracks()
-    end
-end
-
--- criar GUI e iniciar
-gui = createGui()
-spawn(mainLoop)
-
--- limpeza se o jogador sair
-Players.PlayerRemoving:Connect(function(plr)
-    if trackedMarkers[plr] then
-        if trackedMarkers[plr].billboard and trackedMarkers[plr].billboard.Parent then
-            trackedMarkers[plr].billboard:Destroy()
-        end
-        if trackedMarkers[plr].conn then trackedMarkers[plr].conn:Disconnect() end
-        trackedMarkers[plr] = nil
-    end
-end)
+-- fim do script
