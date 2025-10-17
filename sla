@@ -1,230 +1,177 @@
--- Painel Admin básico (2 scripts)
--- Instruções:
--- 1) Coloque o ServerScript em ServerScriptService (nome: AdminServer)
--- 2) Coloque o LocalScript em StarterGui (nome: AdminClient)
--- 3) Ajuste a lista `ADMINS` com os UserIds que devem ter acesso
-
--- =========================
--- ServerScript: AdminServer
--- Colocar em ServerScriptService
--- =========================
-
--- SERVER SCRIPT START
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- LocalScript (colocar em StarterPlayerScripts)
 local Players = game:GetService("Players")
-
--- Cria RemoteEvent se não existir
-local event = ReplicatedStorage:FindFirstChild("AdminEvent")
-if not event then
-    event = Instance.new("RemoteEvent")
-    event.Name = "AdminEvent"
-    event.Parent = ReplicatedStorage
-end
-
--- Lista de admins (UserIds). Troca pelos seus IDs.
-local ADMINS = {
-    -- exemplo: 12345678,
-}
-local adminSet = {}
-for _,id in ipairs(ADMINS) do adminSet[id] = true end
-
-local function isAdmin(player)
-    return adminSet[player.UserId]
-end
-
--- Funções admin possíveis
-local actions = {}
-
-function actions:kick(targetName, reason)
-    local target = Players:FindFirstChild(targetName)
-    if target then
-        target:Kick(reason or "Expulso pelo admin")
-        return true, "Player kickado"
-    end
-    return false, "Jogador não encontrado"
-end
-
-function actions:tp(sourcePlayer, targetName)
-    local target = Players:FindFirstChild(targetName)
-    if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") and sourcePlayer.Character and sourcePlayer.Character:FindFirstChild("HumanoidRootPart") then
-        sourcePlayer.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(2,0,0)
-        return true, "Teleportado"
-    end
-    return false, "Falha ao teleportar"
-end
-
-function actions:bring(sourcePlayer, targetName)
-    local target = Players:FindFirstChild(targetName)
-    if target and sourcePlayer.Character and target.Character and target.Character:FindFirstChild("HumanoidRootPart") and sourcePlayer.Character:FindFirstChild("HumanoidRootPart") then
-        target.Character.HumanoidRootPart.CFrame = sourcePlayer.Character.HumanoidRootPart.CFrame + Vector3.new(2,0,0)
-        return true, "Trazido"
-    end
-    return false, "Falha ao trazer"
-end
-
-function actions:heal(targetName)
-    local target = Players:FindFirstChild(targetName)
-    if target and target.Character and target.Character:FindFirstChild("Humanoid") then
-        target.Character.Humanoid.Health = target.Character.Humanoid.MaxHealth
-        return true, "Curado"
-    end
-    return false, "Falha ao curar"
-end
-
--- Handler do RemoteEvent
-event.OnServerEvent:Connect(function(player, cmd, args)
-    if not isAdmin(player) then
-        return -- ignora se não for admin
-    end
-
-    local fn = actions[cmd]
-    if fn then
-        local ok, msg = pcall(function() return fn(player, table.unpack(args)) end)
-        if not ok then
-            warn("Erro ao executar comando admin:", msg)
-        end
-    else
-        warn("Comando admin desconhecido:", cmd)
-    end
-end)
--- SERVER SCRIPT END
-
-
--- =========================
--- LocalScript: AdminClient
--- Colocar em StarterGui (LocalScript)
--- =========================
-
--- CLIENT SCRIPT START
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+local camera = workspace.CurrentCamera
 
--- Tenta referenciar o RemoteEvent (pode ser criado pelo server)
-local event = ReplicatedStorage:WaitForChild("AdminEvent")
+-- Config
+local MIN_FOV = 30
+local MAX_FOV = 120
+local DEFAULT_FOV = 70
+local TOGGLE_KEY = Enum.KeyCode.K -- tecla pra mostrar/ocultar a GUI
 
--- Lista de nomes visuais / permissões locais (opcional)
-local ADMINS_NAMES = {
-    -- "Canario",
-}
-
-local function isLocalAdmin()
-    for _,n in ipairs(ADMINS_NAMES) do
-        if tostring(player.Name):lower() == tostring(n):lower() then return true end
-    end
-    return false
-end
-
--- GUI
+-- cria GUI
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "PainelAdminGUI"
+screenGui.Name = "FOVChangerGui"
 screenGui.ResetOnSpawn = false
-screenGui.Parent = playerGui
+screenGui.Parent = player:WaitForChild("PlayerGui")
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Name = "Main"
-mainFrame.Size = UDim2.new(0, 420, 0, 300)
-mainFrame.Position = UDim2.new(0.5, -210, 0.5, -150)
-mainFrame.AnchorPoint = Vector2.new(0.5,0.5)
+mainFrame.Size = UDim2.new(0, 360, 0, 110)
+mainFrame.Position = UDim2.new(0.5, -180, 0.85, -55)
+mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 mainFrame.BackgroundTransparency = 0.15
 mainFrame.BackgroundColor3 = Color3.fromRGB(20,20,20)
 mainFrame.BorderSizePixel = 0
-mainFrame.Visible = false
 mainFrame.Parent = screenGui
-
-local uiCorner = Instance.new("UICorner")
-uiCorner.CornerRadius = UDim.new(0,8)
-uiCorner.Parent = mainFrame
+mainFrame.LayoutOrder = 1
+mainFrame.Modal = false
 
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -20, 0, 36)
-title.Position = UDim2.new(0,10,0,10)
+title.Size = UDim2.new(1, -16, 0, 28)
+title.Position = UDim2.new(0, 8, 0, 6)
 title.BackgroundTransparency = 1
-title.Text = "Painel Admin"
-title.TextSize = 20
-title.TextColor3 = Color3.new(1,1,1)
+title.Text = "FOV"
 title.Font = Enum.Font.SourceSansBold
+title.TextSize = 20
+title.TextColor3 = Color3.fromRGB(255,255,255)
+title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = mainFrame
 
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 36, 0, 28)
-closeBtn.Position = UDim2.new(1, -46, 0, 8)
-closeBtn.Text = "X"
-closeBtn.Parent = mainFrame
+local valueLabel = Instance.new("TextLabel")
+valueLabel.Size = UDim2.new(0, 76, 0, 28)
+valueLabel.Position = UDim2.new(1, -84, 0, 6)
+valueLabel.BackgroundTransparency = 1
+valueLabel.Text = tostring(DEFAULT_FOV)
+valueLabel.Font = Enum.Font.SourceSansBold
+valueLabel.TextSize = 20
+valueLabel.TextColor3 = Color3.fromRGB(255,255,255)
+valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+valueLabel.Parent = mainFrame
 
-closeBtn.MouseButton1Click:Connect(function()
-    mainFrame.Visible = false
+-- barra do slider
+local sliderBar = Instance.new("Frame")
+sliderBar.Size = UDim2.new(1, -16, 0, 18)
+sliderBar.Position = UDim2.new(0, 8, 0, 50)
+sliderBar.BackgroundColor3 = Color3.fromRGB(60,60,60)
+sliderBar.BorderSizePixel = 0
+sliderBar.Parent = mainFrame
+sliderBar.AnchorPoint = Vector2.new(0,0)
+
+local sliderFill = Instance.new("Frame")
+sliderFill.Size = UDim2.new(0, 0, 1, 0)
+sliderFill.Position = UDim2.new(0, 0, 0, 0)
+sliderFill.BackgroundColor3 = Color3.fromRGB(120,120,120)
+sliderFill.BorderSizePixel = 0
+sliderFill.Parent = sliderBar
+
+local knob = Instance.new("ImageButton")
+knob.Name = "Knob"
+knob.Size = UDim2.new(0, 18, 0, 32)
+knob.Position = UDim2.new(0, -9, 0.5, -16)
+knob.AnchorPoint = Vector2.new(0.5, 0.5)
+knob.BackgroundTransparency = 1
+knob.Image = "rbxassetid://3570695787" -- círculo básico
+knob.ImageColor3 = Color3.fromRGB(200,200,200)
+knob.Parent = sliderBar
+
+local quickMinus = Instance.new("TextButton")
+quickMinus.Size = UDim2.new(0, 28, 0, 28)
+quickMinus.Position = UDim2.new(0, 8, 1, -36)
+quickMinus.Text = "-"
+quickMinus.Font = Enum.Font.SourceSansBold
+quickMinus.TextSize = 20
+quickMinus.Parent = mainFrame
+
+local quickPlus = Instance.new("TextButton")
+quickPlus.Size = UDim2.new(0, 28, 0, 28)
+quickPlus.Position = UDim2.new(1, -36, 1, -36)
+quickPlus.AnchorPoint = Vector2.new(0,0)
+quickPlus.Text = "+"
+quickPlus.Font = Enum.Font.SourceSansBold
+quickPlus.TextSize = 20
+quickPlus.Parent = mainFrame
+
+-- estado
+local dragging = false
+
+-- funs utils
+local function clamp(val, a, b)
+	return math.max(a, math.min(b, val))
+end
+
+local function setFOVFromPercent(p)
+	p = clamp(p, 0, 1)
+	local fov = MIN_FOV + (MAX_FOV - MIN_FOV) * p
+	camera.FieldOfView = fov
+	valueLabel.Text = tostring(math.floor(fov + 0.5))
+	-- atualiza visuais
+	sliderFill.Size = UDim2.new(p, 0, 1, 0)
+	knob.Position = UDim2.new(p, 0, 0.5, -16)
+end
+
+local function percentFromPosition(absX)
+	local absPos = sliderBar.AbsolutePosition
+	local absSize = sliderBar.AbsoluteSize
+	local relative = (absX - absPos.X) / absSize.X
+	return clamp(relative, 0, 1)
+end
+
+-- inicia com valor padrão
+camera.FieldOfView = DEFAULT_FOV
+local initPercent = (DEFAULT_FOV - MIN_FOV) / (MAX_FOV - MIN_FOV)
+setFOVFromPercent(initPercent)
+
+-- eventos de mouse/drag
+knob.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		UserInputService.MouseIconEnabled = true
+	end
 end)
 
--- Command box
-local cmdBox = Instance.new("TextBox")
-cmdBox.Size = UDim2.new(1, -110, 0, 32)
-cmdBox.Position = UDim2.new(0,10,0,56)
-cmdBox.PlaceholderText = ":kick Jogador"
-cmdBox.ClearTextOnFocus = false
-cmdBox.Text = ""
-cmdBox.Parent = mainFrame
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = false
+		UserInputService.MouseIconEnabled = true
+	end
+end)
 
-local execBtn = Instance.new("TextButton")
-execBtn.Size = UDim2.new(0, 80, 0, 32)
-execBtn.Position = UDim2.new(1, -90, 0, 56)
-execBtn.Text = "Executar"
-execBtn.Parent = mainFrame
+UserInputService.InputChanged:Connect(function(input)
+	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local p = percentFromPosition(input.Position.X)
+		setFOVFromPercent(p)
+	end
+end)
 
-local output = Instance.new("TextLabel")
-output.Size = UDim2.new(1, -20, 1, -120)
-output.Position = UDim2.new(0,10,0,100)
-output.BackgroundTransparency = 1
-output.Text = ""
-output.TextWrapped = true
-output.TextXAlignment = Enum.TextXAlignment.Left
-output.TextYAlignment = Enum.TextYAlignment.Top
-output.Font = Enum.Font.SourceSans
-output.TextSize = 16
-output.TextColor3 = Color3.new(1,1,1)
-output.Parent = mainFrame
+-- clique direto na barra
+sliderBar.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		local p = percentFromPosition(input.Position.X)
+		setFOVFromPercent(p)
+	end
+end)
 
--- Toggle com tecla (Ctrl + P)
-local UserInputService = game:GetService("UserInputService")
+-- botões +/- rápidos
+quickMinus.MouseButton1Click:Connect(function()
+	setFOVFromPercent(((camera.FieldOfView - 1) - MIN_FOV) / (MAX_FOV - MIN_FOV))
+end)
+quickPlus.MouseButton1Click:Connect(function()
+	setFOVFromPercent(((camera.FieldOfView + 1) - MIN_FOV) / (MAX_FOV - MIN_FOV))
+end)
+
+-- tecla pra esconder/mostrar
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == Enum.KeyCode.P and UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
-        mainFrame.Visible = not mainFrame.Visible
-    end
+	if gameProcessed then return end
+	if input.KeyCode == TOGGLE_KEY then
+		screenGui.Enabled = not screenGui.Enabled
+	end
 end)
 
--- Ajuda rápida
-local helpText = "Comandos suportados (server precisa ter o AdminServer ativo):\n:kick <Nome> - Expulsa jogador\n:tp <Nome> - Teleporta você até o jogador\n:bring <Nome> - Traz jogador até você\n:heal <Nome> - Cura jogador\n"
-output.Text = helpText
-
-local function sendCommand(raw)
-    local parts = {}
-    for w in string.gmatch(raw, "%S+") do table.insert(parts, w) end
-    local cmd = string.gsub(parts[1] or "", ":", "")
-    table.remove(parts,1)
-    -- manda pro server
-    event:FireServer(cmd, parts)
-    output.Text = output.Text .. "\n> " .. raw
-end
-
-execBtn.MouseButton1Click:Connect(function()
-    if cmdBox.Text ~= "" then
-        sendCommand(cmdBox.Text)
-        cmdBox.Text = ""
-    end
+-- touch support (toque na barra)
+sliderBar.InputChanged:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.Touch then
+		local p = percentFromPosition(input.Position.X)
+		setFOVFromPercent(p)
+	end
 end)
-
-cmdBox.FocusLost:Connect(function(enterPressed)
-    if enterPressed and cmdBox.Text ~= "" then
-        sendCommand(cmdBox.Text)
-        cmdBox.Text = ""
-    end
-end)
-
--- Mensagem inicial
-if not isLocalAdmin() then
-    output.Text = output.Text .. "\n\nObservação: seu usuário pode não ser admin. O servidor checa permissões antes de executar comandos sensíveis."
-end
-
--- CLIENT SCRIPT END
