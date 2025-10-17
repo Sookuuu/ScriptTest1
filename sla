@@ -1,592 +1,195 @@
--- LocalScript para uso educativo / testes locais (colocar em StarterPlayerScripts)
--- Inclui:
---  - Interface com botão de fechar (limpa tudo e restaura FOV)
---  - Slider para ajustar FOV
---  - Toggle "Highlight Tagged" (CollectionService tag "DebugHighlight")
---  - Toggle "Infinite Jump" (SOMENTE NO STUDIO)
---  - ESP para jogadores com cor do time (Team Color) + Team Check
--- Observação: projetado para uso em Studio / ambiente autorizado.
-
+-- LocalScript: ESP, Infinite Jump, Menu arrastável + minimizar
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local CollectionService = game:GetService("CollectionService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local camera = workspace.CurrentCamera
 
--- executa somente no Studio por segurança
-local IS_STUDIO = RunService:IsStudio()
-
--- guarda FOV original para restaurar
-local originalFOV = camera and camera.FieldOfView or 70
-
-local connections = {}              -- lista de RBXScriptConnections p/ desconectar
-local tagHighlightMap = {}         -- [instance] = highlightInstance (para DebugHighlight)
-local playerHighlightMap = {}      -- [player] = highlightInstance (para ESP)
-
--- estado
-local dragging = false
-local infiniteJumpEnabled = false
-local highlightsEnabled = false
 local espEnabled = false
-local teamCheckEnabled = true      -- se true, só mostra inimigos (outro time), se false mostra todos exceto você
+local infiniteJumpEnabled = false
+local menuOpen = true
+local playerESPMap = {}
 
--- Helpers: safe disconnect adder
-local function addConn(conn)
-    if conn then table.insert(connections, conn) end
+-- ===== Funções ESP =====
+local function getPlayerColor(p)
+    if p.Team and p.Team.TeamColor then
+        return p.Team.TeamColor.Color
+    end
+    return Color3.fromRGB(255,0,0)
 end
 
--- ========== Highlight para instâncias taggeadas ==========
-local function createHighlightForTag(inst)
-    if not inst then return end
-    if tagHighlightMap[inst] then return end
+local function createESPFor(p)
+    if playerESPMap[p] then return end
+    if not p.Character then return end
+    local head = p.Character:FindFirstChild("Head")
+    if not head then return end
 
-    -- Adornee pode ser Model ou BasePart. Highlight aceita Model prior.
+    -- Highlight
     local highlight = Instance.new("Highlight")
-    highlight.Name = "DebugHighlightInstance"
-    highlight.Adornee = inst
-    highlight.FillColor = Color3.fromRGB(255, 200, 60)
+    highlight.Adornee = p.Character
+    highlight.FillColor = getPlayerColor(p)
     highlight.FillTransparency = 0.6
-    highlight.OutlineColor = Color3.fromRGB(255, 150, 0)
+    highlight.OutlineColor = getPlayerColor(p)
     highlight.OutlineTransparency = 0.3
     highlight.Parent = playerGui
-    tagHighlightMap[inst] = highlight
+
+    -- Nome pequeno
+    local billboard = Instance.new("BillboardGui")
+    billboard.Adornee = head
+    billboard.Size = UDim2.new(0, 100, 0, 10)
+    billboard.StudsOffset = Vector3.new(0,2.5,0)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = playerGui
+
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Size = UDim2.new(1,0,1,0)
+    textLabel.BackgroundTransparency = 1
+    textLabel.Text = p.Name
+    textLabel.TextColor3 = getPlayerColor(p)
+    textLabel.Font = Enum.Font.SourceSansBold
+    textLabel.TextSize = 10
+    textLabel.TextStrokeTransparency = 0.6
+    textLabel.Parent = billboard
+
+    playerESPMap[p] = {highlight=highlight, label=billboard}
 end
 
-local function removeHighlightForTag(inst)
-    local h = tagHighlightMap[inst]
-    if h then
-        pcall(function() h:Destroy() end)
-        tagHighlightMap[inst] = nil
-    end
-end
-
-local function refreshTaggedHighlights()
-    -- remove highlights que não tem mais tag
-    for inst, _ in pairs(tagHighlightMap) do
-        if not inst or not CollectionService:HasTag(inst, "DebugHighlight") then
-            removeHighlightForTag(inst)
-        end
-    end
-    -- cria pra todos os taggeados
-    for _, inst in ipairs(CollectionService:GetTagged("DebugHighlight")) do
-        if inst and not tagHighlightMap[inst] then
-            createHighlightForTag(inst)
-        end
-    end
-end
-
--- ========== ESP de jogadores (por time color) ==========
-local function getTeamColorOfPlayer(plr)
-    -- tenta usar TeamColor (preferível). retorna Color3
-    if not plr then return Color3.fromRGB(255,255,255) end
-    local tc = plr.TeamColor
-    if tc and tc ~= BrickColor.new("") then
-        return tc.Color
-    end
-    -- fallback generoso
-    if plr.Team and plr.Team.TeamColor then
-        return plr.Team.TeamColor.Color
-    end
-    return Color3.fromRGB(255,255,255)
-end
-
-local function shouldShowPlayer(plr)
-    if plr == player then return false end
-    if not plr.Character then return false end
-    if not espEnabled then return false end
-    if teamCheckEnabled and player.Team then
-        -- se tiver time localplayer, e estiver no mesmo time, não mostra
-        if plr.Team == player.Team then
-            return false
-        end
-    end
-    return true
-end
-
-local function createOrUpdatePlayerHighlight(plr)
-    if not plr or not plr.Character then return end
-    -- se já existe highlight, só atualiza cor
-    local h = playerHighlightMap[plr]
-    local color = getTeamColorOfPlayer(plr)
-    if h and h.Parent then
-        -- atualiza cor caso time mude
-        h.FillColor = color
-        h.OutlineColor = color:lerp(Color3.new(0,0,0), 0.5)
-        return
-    end
-
-    -- cria highlight adornee no personagem (Model) - Highlight aceita Model adornees
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "ESPPlayerHighlight"
-    highlight.Adornee = plr.Character
-    highlight.FillColor = color
-    highlight.FillTransparency = 0.7
-    highlight.OutlineColor = color:lerp(Color3.new(0,0,0), 0.45)
-    highlight.OutlineTransparency = 0.25
-    highlight.Parent = playerGui
-
-    playerHighlightMap[plr] = highlight
-
-    -- se personagem removido, limpar highlight
-    local remConn
-    remConn = plr.CharacterRemoving:Connect(function()
-        if playerHighlightMap[plr] then
-            pcall(function() playerHighlightMap[plr]:Destroy() end)
-            playerHighlightMap[plr] = nil
-        end
-        if remConn then remConn:Disconnect() end
-    end)
-    addConn(remConn)
-end
-
-local function removePlayerHighlight(plr)
-    local h = playerHighlightMap[plr]
-    if h then
-        pcall(function() h:Destroy() end)
-        playerHighlightMap[plr] = nil
+local function removeESPFor(p)
+    local data = playerESPMap[p]
+    if data then
+        pcall(function()
+            if data.highlight then data.highlight:Destroy() end
+            if data.label then data.label:Destroy() end
+        end)
+        playerESPMap[p] = nil
     end
 end
 
-local function updateAllPlayerHighlights()
-    -- varre todos jogadores
-    for _, plr in pairs(Players:GetPlayers()) do
-        if shouldShowPlayer(plr) then
-            if plr.Character then
-                createOrUpdatePlayerHighlight(plr)
-            end
-        else
-            if playerHighlightMap[plr] then
-                removePlayerHighlight(plr)
-            end
-        end
+local function refreshESP()
+    if not espEnabled then return end
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= player then createESPFor(p) end
+    end
+    for p,_ in pairs(playerESPMap) do
+        if not p.Parent or not p.Character then removeESPFor(p) end
     end
 end
 
--- ouvinte para mudança de time - atualiza cor/remover
-local function onPlayerTeamChanged(plr)
-    if not plr then return end
-    if playerHighlightMap[plr] then
-        -- se TeamCheck ligado, pode ser que tenha que remover
-        if teamCheckEnabled and player.Team and plr.Team == player.Team then
-            removePlayerHighlight(plr)
-        else
-            createOrUpdatePlayerHighlight(plr)
-        end
-    else
-        -- se antes nao tinha highlight e agora deve mostrar, criar
-        if shouldShowPlayer(plr) and plr.Character then
-            createOrUpdatePlayerHighlight(plr)
-        end
-    end
-end
+-- Atualiza ESP sempre
+RunService.Heartbeat:Connect(function()
+    if espEnabled then refreshESP() end
+end)
 
--- ========== UI (base adaptada do teu script) ==========
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "DebugCustomUI"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = playerGui
+-- ===== UI =====
+local screenGui = Instance.new("ScreenGui", playerGui)
+screenGui.Name = "DebugUI"
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 420, 0, 220)
-mainFrame.Position = UDim2.new(0.5, -210, 0.5, -110)
-mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-mainFrame.BorderSizePixel = 0
+mainFrame.Size = UDim2.new(0, 420, 0, 200)
+mainFrame.Position = UDim2.new(0.5, -210, 0.5, -100)
+mainFrame.AnchorPoint = Vector2.new(0.5,0.5)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
 mainFrame.Parent = screenGui
-
-local UICorner = Instance.new("UICorner", mainFrame)
-UICorner.CornerRadius = UDim.new(0, 8)
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0,8)
 
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -16, 0, 28)
-title.Position = UDim2.new(0, 8, 0, 8)
+title.Position = UDim2.new(0,8,0,8)
 title.BackgroundTransparency = 1
-title.Text = "Painel de Testes (local / Studio)"
-title.TextColor3 = Color3.fromRGB(240, 240, 240)
+title.Text = "Painel"
+title.TextColor3 = Color3.fromRGB(240,240,240)
 title.Font = Enum.Font.SourceSansBold
 title.TextSize = 18
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = mainFrame
 
+-- Close button
 local closeBtn = Instance.new("TextButton")
-closeBtn.Name = "CloseButton"
-closeBtn.Size = UDim2.new(0, 36, 0, 24)
-closeBtn.Position = UDim2.new(1, -44, 0, 8)
-closeBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+closeBtn.Size = UDim2.new(0,36,0,24)
+closeBtn.Position = UDim2.new(1,-44,0,8)
+closeBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
 closeBtn.Text = "X"
 closeBtn.TextColor3 = Color3.new(1,1,1)
 closeBtn.Font = Enum.Font.SourceSansBold
 closeBtn.TextSize = 18
 closeBtn.Parent = mainFrame
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0,6)
+closeBtn.MouseButton1Click:Connect(function()
+    for p,_ in pairs(playerESPMap) do removeESPFor(p) end
+    screenGui:Destroy()
+end)
 
--- FOV slider label
-local fovLabel = Instance.new("TextLabel")
-fovLabel.Name = "FOVLabel"
-fovLabel.Size = UDim2.new(0, 200, 0, 22)
-fovLabel.Position = UDim2.new(0, 12, 0, 48)
-fovLabel.BackgroundTransparency = 1
-fovLabel.Text = "FOV: " .. tostring(math.floor(originalFOV))
-fovLabel.TextColor3 = Color3.fromRGB(220,220,220)
-fovLabel.Font = Enum.Font.SourceSans
-fovLabel.TextSize = 16
-fovLabel.TextXAlignment = Enum.TextXAlignment.Left
-fovLabel.Parent = mainFrame
-
--- FOV slider track
-local sliderTrack = Instance.new("Frame")
-sliderTrack.Name = "SliderTrack"
-sliderTrack.Size = UDim2.new(0, 320, 0, 10)
-sliderTrack.Position = UDim2.new(0, 12, 0, 76)
-sliderTrack.BackgroundColor3 = Color3.fromRGB(50,50,50)
-sliderTrack.Parent = mainFrame
-Instance.new("UICorner", sliderTrack).CornerRadius = UDim.new(1,0)
-
-local sliderFill = Instance.new("Frame")
-sliderFill.Name = "SliderFill"
-sliderFill.Size = UDim2.new((originalFOV - 10) / (120 - 10), 0, 1, 0)
-sliderFill.Position = UDim2.new(0, 0, 0, 0)
-sliderFill.BackgroundColor3 = Color3.fromRGB(80,160,255)
-sliderFill.Parent = sliderTrack
-Instance.new("UICorner", sliderFill).CornerRadius = UDim.new(1,0)
-
-local sliderKnob = Instance.new("ImageButton")
-sliderKnob.Name = "Knob"
-sliderKnob.Size = UDim2.new(0, 18, 0, 18)
-sliderKnob.Position = UDim2.new(sliderFill.Size.X.Scale, 0, 0.5, -9)
-sliderKnob.Image = ""
-sliderKnob.BackgroundColor3 = Color3.fromRGB(245,245,245)
-sliderKnob.Parent = sliderTrack
-Instance.new("UICorner", sliderKnob).CornerRadius = UDim.new(1,0)
-
--- studio-only infinite jump toggle
-local ijLabel = Instance.new("TextLabel")
-ijLabel.Size = UDim2.new(0, 220, 0, 22)
-ijLabel.Position = UDim2.new(0, 12, 0, 104)
-ijLabel.BackgroundTransparency = 1
-ijLabel.Text = "Infinite Jump (Studio only):"
-ijLabel.TextColor3 = Color3.fromRGB(220,220,220)
-ijLabel.Font = Enum.Font.SourceSans
-ijLabel.TextSize = 16
-ijLabel.TextXAlignment = Enum.TextXAlignment.Left
-ijLabel.Parent = mainFrame
-
-local ijToggle = Instance.new("TextButton")
-ijToggle.Name = "IJToggle"
-ijToggle.Size = UDim2.new(0, 60, 0, 24)
-ijToggle.Position = UDim2.new(0, 240, 0, 100)
-ijToggle.Text = "Off"
-ijToggle.BackgroundColor3 = Color3.fromRGB(90,90,90)
-ijToggle.TextColor3 = Color3.fromRGB(240,240,240)
-ijToggle.Font = Enum.Font.SourceSansBold
-ijToggle.TextSize = 14
-ijToggle.Parent = mainFrame
-Instance.new("UICorner", ijToggle).CornerRadius = UDim.new(0,6)
-
-local studioWarning = Instance.new("TextLabel")
-studioWarning.Size = UDim2.new(1, -16, 0, 18)
-studioWarning.Position = UDim2.new(0, 8, 1, -28)
-studioWarning.BackgroundTransparency = 1
-studioWarning.Text = IS_STUDIO and "Rodando no Studio" or "Aviso: Infinite Jump só funciona no Studio para segurança."
-studioWarning.TextColor3 = Color3.fromRGB(200,200,120)
-studioWarning.Font = Enum.Font.SourceSansItalic
-studioWarning.TextSize = 12
-studioWarning.TextXAlignment = Enum.TextXAlignment.Left
-studioWarning.Parent = mainFrame
-
--- Highlight toggle (para instâncias com tag "DebugHighlight")
-local hlLabel = Instance.new("TextLabel")
-hlLabel.Size = UDim2.new(0, 220, 0, 22)
-hlLabel.Position = UDim2.new(0, 12, 0, 136)
-hlLabel.BackgroundTransparency = 1
-hlLabel.Text = "Highlight (tag: DebugHighlight):"
-hlLabel.TextColor3 = Color3.fromRGB(220,220,220)
-hlLabel.Font = Enum.Font.SourceSans
-hlLabel.TextSize = 16
-hlLabel.TextXAlignment = Enum.TextXAlignment.Left
-hlLabel.Parent = mainFrame
-
-local hlToggle = Instance.new("TextButton")
-hlToggle.Name = "HLToggle"
-hlToggle.Size = UDim2.new(0, 60, 0, 24)
-hlToggle.Position = UDim2.new(0, 240, 0, 132)
-hlToggle.Text = "Off"
-hlToggle.BackgroundColor3 = Color3.fromRGB(90,90,90)
-hlToggle.TextColor3 = Color3.fromRGB(240,240,240)
-hlToggle.Font = Enum.Font.SourceSansBold
-hlToggle.TextSize = 14
-hlToggle.Parent = mainFrame
-Instance.new("UICorner", hlToggle).CornerRadius = UDim.new(0,6)
-
--- ESP Toggle + TeamCheck Toggle (adicionados)
-local espLabel = Instance.new("TextLabel")
-espLabel.Size = UDim2.new(0, 220, 0, 22)
-espLabel.Position = UDim2.new(0, 12, 0, 168)
-espLabel.BackgroundTransparency = 1
-espLabel.Text = "ESP (Players) :"
-espLabel.TextColor3 = Color3.fromRGB(220,220,220)
-espLabel.Font = Enum.Font.SourceSans
-espLabel.TextSize = 16
-espLabel.TextXAlignment = Enum.TextXAlignment.Left
-espLabel.Parent = mainFrame
-
+-- ESP toggle
 local espToggle = Instance.new("TextButton")
-espToggle.Name = "ESPToggle"
-espToggle.Size = UDim2.new(0, 60, 0, 24)
-espToggle.Position = UDim2.new(0, 240, 0, 164)
-espToggle.Text = "Off"
+espToggle.Size = UDim2.new(0,120,0,28)
+espToggle.Position = UDim2.new(0,12,0,48)
 espToggle.BackgroundColor3 = Color3.fromRGB(90,90,90)
 espToggle.TextColor3 = Color3.fromRGB(240,240,240)
+espToggle.Text = "ESP: Off"
 espToggle.Font = Enum.Font.SourceSansBold
 espToggle.TextSize = 14
 espToggle.Parent = mainFrame
 Instance.new("UICorner", espToggle).CornerRadius = UDim.new(0,6)
 
-local teamCheckLabel = Instance.new("TextLabel")
-teamCheckLabel.Size = UDim2.new(0, 160, 0, 18)
-teamCheckLabel.Position = UDim2.new(0, 308, 0, 168)
-teamCheckLabel.BackgroundTransparency = 1
-teamCheckLabel.Text = "TeamCheck: On"
-teamCheckLabel.TextColor3 = Color3.fromRGB(200,200,200)
-teamCheckLabel.Font = Enum.Font.SourceSans
-teamCheckLabel.TextSize = 14
-teamCheckLabel.TextXAlignment = Enum.TextXAlignment.Left
-teamCheckLabel.Parent = mainFrame
-
--- estado inical do slider
-do
-    local minFOV, maxFOV = 10, 120
-    local percent = math.clamp((camera.FieldOfView - minFOV) / (maxFOV - minFOV), 0, 1)
-    -- função local para setar
-    local function setFOVFromPercent(percent)
-        percent = math.clamp(percent, 0, 1)
-        local minFOV, maxFOV = 10, 120
-        local value = minFOV + (maxFOV - minFOV) * percent
-        camera.FieldOfView = value
-        fovLabel.Text = "FOV: " .. tostring(math.floor(value))
-        sliderFill.Size = UDim2.new(percent, 0, 1, 0)
-        sliderKnob.Position = UDim2.new(percent, 0, 0.5, -9)
-    end
-    setFOVFromPercent(percent)
-end
-
--- slider input handling
-local function getSliderPercentFromPosition(absX)
-    local trackPos = sliderTrack.AbsolutePosition.X
-    local trackWidth = sliderTrack.AbsoluteSize.X
-    local t = (absX - trackPos) / trackWidth
-    return math.clamp(t, 0, 1)
-end
-
-addConn(sliderKnob.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
-    end
-end))
-
-addConn(UserInputService.InputChanged:Connect(function(input)
-    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-        local percent = getSliderPercentFromPosition(input.Position.X)
-        local minFOV, maxFOV = 10, 120
-        local value = minFOV + (maxFOV - minFOV) * percent
-        camera.FieldOfView = value
-        fovLabel.Text = "FOV: " .. tostring(math.floor(value))
-        sliderFill.Size = UDim2.new(percent, 0, 1, 0)
-        sliderKnob.Position = UDim2.new(percent, 0, 0.5, -9)
-    end
-end))
-
-addConn(UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = false
-    end
-end))
-
--- Infinite Jump (Studio-only)
-addConn(ijToggle.MouseButton1Click:Connect(function()
-    if not IS_STUDIO then
-        ijToggle.Text = "Off"
-        infiniteJumpEnabled = false
-        studioWarning.Text = "Aviso: Infinite Jump só funciona no Studio para segurança."
-        ijToggle.BackgroundColor3 = Color3.fromRGB(90,90,90)
-        return
-    end
-    infiniteJumpEnabled = not infiniteJumpEnabled
-    ijToggle.Text = infiniteJumpEnabled and "On" or "Off"
-    ijToggle.BackgroundColor3 = infiniteJumpEnabled and Color3.fromRGB(80,160,80) or Color3.fromRGB(90,90,90)
-end))
-
-addConn(UserInputService.JumpRequest:Connect(function()
-    if not infiniteJumpEnabled then return end
-    local char = player.Character
-    if not char then return end
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if humanoid and humanoid.Health > 0 then
-        pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end)
-    end
-end))
-
--- Highlight tag toggle
-local tagAddedConn, tagRemovedConn
-local function enableHighlights()
-    highlightsEnabled = true
-    hlToggle.Text = "On"
-    hlToggle.BackgroundColor3 = Color3.fromRGB(80,160,80)
-    refreshTaggedHighlights()
-    -- conectar sinais
-    tagAddedConn = CollectionService:GetInstanceAddedSignal("DebugHighlight"):Connect(function(inst)
-        createHighlightForTag(inst)
-    end)
-    tagRemovedConn = CollectionService:GetInstanceRemovedSignal("DebugHighlight"):Connect(function(inst)
-        removeHighlightForTag(inst)
-    end)
-    addConn(tagAddedConn)
-    addConn(tagRemovedConn)
-end
-
-local function disableHighlights()
-    highlightsEnabled = false
-    hlToggle.Text = "Off"
-    hlToggle.BackgroundColor3 = Color3.fromRGB(90,90,90)
-    for inst, _ in pairs(tagHighlightMap) do
-        removeHighlightForTag(inst)
-    end
-end
-
-addConn(hlToggle.MouseButton1Click:Connect(function()
-    if not highlightsEnabled then
-        enableHighlights()
-    else
-        disableHighlights()
-    end
-end))
-
--- ESP Toggle and TeamCheck toggle handling
-addConn(espToggle.MouseButton1Click:Connect(function()
+espToggle.MouseButton1Click:Connect(function()
     espEnabled = not espEnabled
-    espToggle.Text = espEnabled and "On" or "Off"
+    espToggle.Text = "ESP: "..(espEnabled and "On" or "Off")
     espToggle.BackgroundColor3 = espEnabled and Color3.fromRGB(80,160,80) or Color3.fromRGB(90,90,90)
-    updateAllPlayerHighlights()
-end))
+end)
 
-addConn(teamCheckLabel.MouseButton1Click:Connect(function()
-    teamCheckEnabled = not teamCheckEnabled
-    teamCheckLabel.Text = "TeamCheck: " .. (teamCheckEnabled and "On" or "Off")
-    -- reaplica logica (pode remover/mostrar highlights)
-    updateAllPlayerHighlights()
-end))
+-- Infinite Jump toggle
+local ijToggle = Instance.new("TextButton")
+ijToggle.Size = UDim2.new(0,120,0,28)
+ijToggle.Position = UDim2.new(0,12,0,88)
+ijToggle.BackgroundColor3 = Color3.fromRGB(90,90,90)
+ijToggle.TextColor3 = Color3.fromRGB(240,240,240)
+ijToggle.Text = "Infinite Jump: Off"
+ijToggle.Font = Enum.Font.SourceSansBold
+ijToggle.TextSize = 14
+ijToggle.Parent = mainFrame
+Instance.new("UICorner", ijToggle).CornerRadius = UDim.new(0,6)
 
--- também permitir clicar no texto para alternar (usabilidade)
-addConn(teamCheckLabel.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        teamCheckEnabled = not teamCheckEnabled
-        teamCheckLabel.Text = "TeamCheck: " .. (teamCheckEnabled and "On" or "Off")
-        updateAllPlayerHighlights()
-    end
-end))
+ijToggle.MouseButton1Click:Connect(function()
+    infiniteJumpEnabled = not infiniteJumpEnabled
+    ijToggle.Text = "Infinite Jump: "..(infiniteJumpEnabled and "On" or "Off")
+    ijToggle.BackgroundColor3 = infiniteJumpEnabled and Color3.fromRGB(80,160,80) or Color3.fromRGB(90,90,90)
+end)
 
--- Player listeners para criar/destroir highlights conforme spawn/despawn/time change
-addConn(Players.PlayerAdded:Connect(function(plr)
-    -- quando player entra, conecta listener de team change
-    local teamConn = plr:GetPropertyChangedSignal("Team"):Connect(function()
-        onPlayerTeamChanged(plr)
-    end)
-    addConn(teamConn)
-
-    -- CharacterAdded para criar highlight se espEnabled
-    local charConn = plr.CharacterAdded:Connect(function()
-        -- pequena espera para partes existirem
-        wait(0.1)
-        if espEnabled then
-            if shouldShowPlayer(plr) then
-                createOrUpdatePlayerHighlight(plr)
-            end
+UserInputService.JumpRequest:Connect(function()
+    if infiniteJumpEnabled then
+        local char = player.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health>0 then pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end) end
         end
-    end)
-    addConn(charConn)
-end))
-
--- remove highlight quando player sai
-addConn(Players.PlayerRemoving:Connect(function(plr)
-    removePlayerHighlight(plr)
-end))
-
--- função principal de atualização periódica (pequeno loop leve)
-local runLoop = true
-spawn(function()
-    while runLoop do
-        if espEnabled then
-            updateAllPlayerHighlights()
-        end
-        -- atualiza highlights tag também
-        if highlightsEnabled then
-            refreshTaggedHighlights()
-        end
-        -- checagem a cada 0.25s
-        wait(0.25)
     end
 end)
 
--- Função de limpeza
-local function cleanup()
-    -- parar loop
-    runLoop = false
-
-    -- restaura FOV
-    pcall(function()
-        if camera and camera:IsA("Camera") then
-            camera.FieldOfView = originalFOV
-        end
-    end)
-
-    -- desconecta conexões
-    for _, con in ipairs(connections) do
-        if con and typeof(con) == "RBXScriptConnection" then
-            pcall(function() con:Disconnect() end)
-        end
+-- Drag menu
+local dragging = false
+local dragOffset = Vector2.new(0,0)
+mainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType==Enum.UserInputType.MouseButton1 then
+        dragging=true
+        dragOffset = input.Position - mainFrame.AbsolutePosition
+        input.Changed:Connect(function()
+            if input.UserInputState==Enum.UserInputState.End then dragging=false end
+        end)
     end
-    connections = {}
-
-    -- remove highlights de tag
-    for inst, _ in pairs(tagHighlightMap) do
-        removeHighlightForTag(inst)
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType==Enum.UserInputType.MouseMovement then
+        mainFrame.Position = UDim2.new(0, input.Position.X - dragOffset.X, 0, input.Position.Y - dragOffset.Y)
     end
-    tagHighlightMap = {}
+end)
 
-    -- remove highlights de players
-    for plr, _ in pairs(playerHighlightMap) do
-        removePlayerHighlight(plr)
+-- Minimizar/abrir com M
+UserInputService.InputBegan:Connect(function(input,gpe)
+    if gpe then return end
+    if input.KeyCode==Enum.KeyCode.M then
+        menuOpen = not menuOpen
+        mainFrame.Visible = menuOpen
     end
-    playerHighlightMap = {}
-
-    -- destrói UI
-    if screenGui and screenGui.Parent then
-        pcall(function() screenGui:Destroy() end)
-    end
-end
-
-addConn(closeBtn.MouseButton1Click:Connect(function()
-    cleanup()
-end))
-
--- Limpa automaticamente se o jogador sair
-addConn(player.AncestryChanged:Connect(function()
-    if not player:IsDescendantOf(game) then
-        cleanup()
-    end
-end))
-
--- inicial
-print("[DebugCustomUI] Interface carregada. ESP e Infinite Jump estão limitados ao Studio para segurança.")
-if not IS_STUDIO then
-    print("[DebugCustomUI] Aviso: rodando fora do Studio — alguns recursos (Infinite Jump) estarão desabilitados.")
-end
+end)
