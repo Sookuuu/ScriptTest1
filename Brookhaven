@@ -1,8 +1,8 @@
--- Hub BR - Rayfield + ESP / Teleport / Spectate / TP-BUG LOOP + TP Normal + Invisível
+-- Hub BR - Rayfield + ESP / Teleport / Spectate / TP-BUG LOOP + TP Normal + Invisível só pra você + Crash Player
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "Mec BR - FREEHUB V5 (ESP+TP+VIEW+BUG LOOP+TP+INVIS)",
+   Name = "Mec BR - FREEHUB V6 (ESP+TP+VIEW+BUG LOOP+TP+INVIS+CRASH)",
    LoadingTitle = "Carregando Menu",
    LoadingSubtitle = "by OfficialPatozoid - Modificado",
    ShowText = "Rayfield",
@@ -32,11 +32,6 @@ local CreditsTab = Window:CreateTab("Credits", 4483362458)
 
 -- Creditos
 CreditsTab:CreateLabel("HUB BY: OfficialPatozoid (mod)", 4483362458, Color3.fromRGB(255,255,255), false)
-
--- Utilities
-local function safeFindChar(p)
-    return p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") and p.Character
-end
 
 -- ====== ESP ======
 local espEnabled = false
@@ -99,7 +94,7 @@ Players.PlayerRemoving:Connect(function(plr)
     removeESP(plr)
 end)
 
-local ESPToggle = PlayerTab:CreateToggle({
+PlayerTab:CreateToggle({
     Name = "ESP Players (nomes)",
     CurrentValue = false,
     Flag = "ESPPlayersToggle",
@@ -128,60 +123,24 @@ end
 player.CharacterAdded:Connect(onCharacter)
 if player.Character then onCharacter(player.Character) end
 
--- WalkSpeed
-local WalkSlider = PlayerTab:CreateSlider({
-    Name = "WalkSpeed",
-    Range = {0, MAX_SPEED},
-    Increment = 1,
-    Suffix = "WS",
-    CurrentValue = 16,
-    Flag = "WalkSpeedSlider",
-    Callback = function(value)
-        if humanoid then
-            pcall(function() humanoid.WalkSpeed = value end)
-        end
-    end,
-})
-
--- JumpPower
+-- WalkSpeed / JumpPower / InfiniteJump / Noclip / Fly
 local currentJumpPower = 50
-local JumpSlider = PlayerTab:CreateSlider({
-    Name = "JumpPower",
-    Range = {0, MAX_JUMP},
-    Increment = 1,
-    Suffix = "JP",
-    CurrentValue = currentJumpPower,
-    Flag = "JumpPowerSlider",
-    Callback = function(value)
-        currentJumpPower = value
-        if humanoid and humanoid.Parent then
-            pcall(function() humanoid.JumpPower = currentJumpPower end)
-        end
-    end,
-})
-
--- Infinite Jump
 local infiniteJump = false
-PlayerTab:CreateToggle({
-    Name = "Infinite Jump",
-    CurrentValue = false,
-    Flag = "InfiniteJumpToggle",
-    Callback = function(v) infiniteJump = v end,
-})
-UserInputService.JumpRequest:Connect(function()
-    if infiniteJump and humanoid then
-        pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end)
-    end
-end)
-
--- Noclip
 local noclip = false
-PlayerTab:CreateToggle({
-    Name = "Noclip",
-    CurrentValue = false,
-    Flag = "NoclipToggle",
-    Callback = function(v) noclip = v end,
-})
+local flying = false
+local flySpeed = 50
+local keys = {W=false,A=false,S=false,D=false,Space=false,LeftShift=false}
+
+-- Sliders e toggles
+PlayerTab:CreateSlider({ Name = "WalkSpeed", Range = {0, MAX_SPEED}, Increment = 1, Suffix = "WS", CurrentValue = 16, Flag = "WalkSpeedSlider", Callback = function(v) if humanoid then pcall(function() humanoid.WalkSpeed = v end) end end })
+PlayerTab:CreateSlider({ Name = "JumpPower", Range = {0, MAX_JUMP}, Increment = 1, Suffix = "JP", CurrentValue = currentJumpPower, Flag = "JumpPowerSlider", Callback = function(v) currentJumpPower = v if humanoid then pcall(function() humanoid.JumpPower = v end) end end })
+PlayerTab:CreateToggle({ Name = "Infinite Jump", CurrentValue = false, Flag = "InfiniteJumpToggle", Callback = function(v) infiniteJump = v end })
+PlayerTab:CreateToggle({ Name = "Noclip", CurrentValue = false, Flag = "NoclipToggle", Callback = function(v) noclip = v end })
+PlayerTab:CreateToggle({ Name = "Fly", CurrentValue = false, Flag = "FlyToggle", Callback = function(v) flying = v end })
+PlayerTab:CreateSlider({ Name = "Fly Speed", Range = {10, MAX_FLY}, Increment = 5, Suffix = "Studs/s", CurrentValue = flySpeed, Flag = "FlySpeedSlider", Callback = function(v) flySpeed = v end })
+
+UserInputService.JumpRequest:Connect(function() if infiniteJump and humanoid then pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end) end end)
+
 RunService.Stepped:Connect(function()
     if not character then return end
     for _, part in ipairs(character:GetChildren()) do
@@ -191,32 +150,20 @@ RunService.Stepped:Connect(function()
     end
 end)
 
--- Fly
-local flying = false
-local flySpeed = 50
-local keys = {W=false,A=false,S=false,D=false,Space=false,LeftShift=false}
-
-PlayerTab:CreateToggle({
-    Name = "Fly",
-    CurrentValue = false,
-    Flag = "FlyToggle",
-    Callback = function(v)
-        flying = v
-        if not flying and character and character:FindFirstChild("HumanoidRootPart") then
-            character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
-        end
-    end,
-})
-
-local FlySlider = PlayerTab:CreateSlider({
-    Name = "Fly Speed",
-    Range = {10, MAX_FLY},
-    Increment = 5,
-    Suffix = "Studs/s",
-    CurrentValue = flySpeed,
-    Flag = "FlySpeedSlider",
-    Callback = function(v) flySpeed = v end,
-})
+RunService.RenderStepped:Connect(function()
+    if flying and character and character:FindFirstChild("HumanoidRootPart") then
+        local hrp = character.HumanoidRootPart
+        local dir = Vector3.new(0,0,0)
+        local cam = workspace.CurrentCamera
+        if keys.W then dir = dir + cam.CFrame.LookVector end
+        if keys.S then dir = dir - cam.CFrame.LookVector end
+        if keys.A then dir = dir - cam.CFrame.RightVector end
+        if keys.D then dir = dir + cam.CFrame.RightVector end
+        if keys.Space then dir = dir + Vector3.new(0,1,0) end
+        if keys.LeftShift then dir = dir - Vector3.new(0,1,0) end
+        hrp.Velocity = (dir.Magnitude > 0) and dir.Unit * flySpeed or Vector3.new(0,0,0)
+    end
+end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
@@ -236,26 +183,6 @@ UserInputService.InputEnded:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.LeftShift then keys.LeftShift = false end
 end)
 
-RunService.RenderStepped:Connect(function()
-    if flying and character and character:FindFirstChild("HumanoidRootPart") then
-        local hrp = character.HumanoidRootPart
-        local dir = Vector3.new(0,0,0)
-        local cam = workspace.CurrentCamera
-        if keys.W then dir = dir + cam.CFrame.LookVector end
-        if keys.S then dir = dir - cam.CFrame.LookVector end
-        if keys.A then dir = dir - cam.CFrame.RightVector end
-        if keys.D then dir = dir + cam.CFrame.RightVector end
-        if keys.Space then dir = dir + Vector3.new(0,1,0) end
-        if keys.LeftShift then dir = dir - Vector3.new(0,1,0) end
-
-        if dir.Magnitude > 0 then
-            hrp.Velocity = dir.Unit * flySpeed
-        else
-            hrp.Velocity = Vector3.new(0,0,0)
-        end
-    end
-end)
-
 -- ====== Teleport Target ======
 local targetName = ""
 local function getPlayerByNameOrPrefix(name)
@@ -269,25 +196,13 @@ local function getPlayerByNameOrPrefix(name)
     return nil
 end
 
-local NameBox = TPTab:CreateInput({
-    Name = "Nome do Player (prefixo ok)",
-    PlaceholderText = "Ex: Canario",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(text) targetName = text end,
-})
+TPTab:CreateInput({ Name = "Nome do Player (prefixo ok)", PlaceholderText = "Ex: Canario", RemoveTextAfterFocusLost = false, Callback = function(text) targetName = text end })
 
--- ====== TP + BUG LOOP ======
+-- TP + BUG LOOP
 local tpBugLoop = false
-local bugDistance = 20000 -- distância pra bugar player
+local bugDistance = 20000
 
-TPTab:CreateToggle({
-    Name = "TP + BUG LOOP",
-    CurrentValue = false,
-    Flag = "TPBugLoopToggle",
-    Callback = function(val)
-        tpBugLoop = val
-    end,
-})
+TPTab:CreateToggle({ Name = "TP + BUG LOOP", CurrentValue = false, Flag = "TPBugLoopToggle", Callback = function(val) tpBugLoop = val end })
 
 task.spawn(function()
     while true do
@@ -307,123 +222,100 @@ task.spawn(function()
                     target.Character.HumanoidRootPart.CFrame = CFrame.new(Vector3.new(bugDistance,500,bugDistance))
                     target.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
                 end)
-                StarterGui:SetCore("SendNotification",{
-                    Title = "TP+BUG",
-                    Text = "Você -> "..target.Name.." | "..target.Name.." bugado!",
-                    Duration = 2
-                })
             end
         end
     end
 end)
 
--- ====== Teleport Normal ======
-TPTab:CreateButton({
-    Name = "Teleport Normal ao Player",
-    Callback = function()
-        local target = getPlayerByNameOrPrefix(targetName)
-        if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                pcall(function()
-                    player.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0,5,0)
-                    player.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
-                end)
-                StarterGui:SetCore("SendNotification",{Title="Teleport",Text="Teleportado até "..target.Name,Duration=2})
-            end
-        else
-            StarterGui:SetCore("SendNotification",{Title="Teleport",Text="Target inválido!",Duration=2})
+-- Teleport Normal
+TPTab:CreateButton({ Name = "Teleport Normal ao Player", Callback = function()
+    local target = getPlayerByNameOrPrefix(targetName)
+    if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+        if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            pcall(function()
+                player.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0,5,0)
+                player.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
+            end)
         end
+        StarterGui:SetCore("SendNotification",{Title="Teleport",Text="Teleportado até "..target.Name,Duration=2})
+    else
+        StarterGui:SetCore("SendNotification",{Title="Teleport",Text="Target inválido!",Duration=2})
     end
-})
+end})
 
--- ====== Toggle Invisibilidade ======
+-- Invisibilidade apenas pra você
 local invisible = false
-PlayerTab:CreateToggle({
-    Name = "Invisível",
-    CurrentValue = false,
-    Flag = "InvisibleToggle",
-    Callback = function(val)
-        invisible = val
-        if character then
-            for _, part in ipairs(character:GetChildren()) do
-                if part:IsA("BasePart") or part:IsA("Decal") or part:IsA("MeshPart") then
-                    part.Transparency = invisible and 1 or 0
-                    if part:IsA("BasePart") then
-                        part.CanCollide = not invisible
-                    end
-                elseif part:IsA("Accessory") then
-                    local handle = part:FindFirstChild("Handle")
-                    if handle then
-                        handle.Transparency = invisible and 1 or 0
-                    end
+PlayerTab:CreateToggle({ Name = "Invisível (só pra você)", CurrentValue = false, Flag = "InvisibleToggle", Callback = function(val)
+    invisible = val
+    if character then
+        for _, part in ipairs(character:GetChildren()) do
+            if part:IsA("BasePart") or part:IsA("Decal") or part:IsA("MeshPart") then
+                part.Transparency = invisible and 1 or 0
+                if part:IsA("BasePart") then
+                    part.CanCollide = not invisible
                 end
-            end
-            if humanoid then
-                humanoid.NameDisplayDistance = invisible and 0 or 100
+            elseif part:IsA("Accessory") then
+                local handle = part:FindFirstChild("Handle")
+                if handle then handle.Transparency = invisible and 1 or 0 end
             end
         end
     end
-})
+end})
+
+-- Crash Player
+TPTab:CreateButton({ Name = "Crash Player", Callback = function()
+    local target = getPlayerByNameOrPrefix(targetName)
+    if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+        task.spawn(function()
+            for i = 1, 100 do
+                pcall(function()
+                    target.Character.HumanoidRootPart.CFrame = CFrame.new(Vector3.new(i*10000,500,i*10000))
+                    target.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
+                end)
+            end
+        end)
+        StarterGui:SetCore("SendNotification",{Title="Crash",Text="Crash enviado para "..target.Name,Duration=3})
+    else
+        StarterGui:SetCore("SendNotification",{Title="Crash",Text="Target inválido!",Duration=2})
+    end
+end})
 
 -- Spectate
 local isSpectating = false
 local spectateTarget = nil
 local oldCameraSubject = nil
-
-TPTab:CreateToggle({
-    Name = "Ver Player (Spectate)",
-    CurrentValue = false,
-    Flag = "SpectateToggle",
-    Callback = function(val)
-        if val then
-            local target = getPlayerByNameOrPrefix(targetName)
-            if not target or not target.Character or not target.Character:FindFirstChildOfClass("Humanoid") then
-                StarterGui:SetCore("SendNotification",{Title="Spectate",Text="Target inválido.",Duration=3})
-                return
-            end
-            spectateTarget = target
-            oldCameraSubject = workspace.CurrentCamera.CameraSubject
-            workspace.CurrentCamera.CameraSubject = target.Character:FindFirstChildOfClass("Humanoid")
-            isSpectating = true
-            StarterGui:SetCore("SendNotification",{Title="Spectate",Text="Agora vendo: "..target.Name,Duration=3})
-        else
-            if oldCameraSubject then
-                workspace.CurrentCamera.CameraSubject = oldCameraSubject
-            elseif player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
-                workspace.CurrentCamera.CameraSubject = player.Character:FindFirstChildOfClass("Humanoid")
-            end
-            isSpectating = false
-            spectateTarget = nil
-            StarterGui:SetCore("SendNotification",{Title="Spectate",Text="Parou de ver.",Duration=2})
+TPTab:CreateToggle({ Name = "Ver Player (Spectate)", CurrentValue = false, Flag = "SpectateToggle", Callback = function(val)
+    if val then
+        local target = getPlayerByNameOrPrefix(targetName)
+        if not target or not target.Character or not target.Character:FindFirstChildOfClass("Humanoid") then
+            StarterGui:SetCore("SendNotification",{Title="Spectate",Text="Target inválido.",Duration=3})
+            return
         end
-    end,
-})
-
--- Refresh ESP/Players
-TPTab:CreateButton({
-    Name = "Refresh ESP/Players",
-    Callback = function()
-        refreshAllESP()
-        StarterGui:SetCore("SendNotification",{Title="Refresh",Text="ESP/Players refreshed",Duration=2})
+        spectateTarget = target
+        oldCameraSubject = workspace.CurrentCamera.CameraSubject
+        workspace.CurrentCamera.CameraSubject = target.Character:FindFirstChildOfClass("Humanoid")
+        isSpectating = true
+    else
+        if oldCameraSubject then
+            workspace.CurrentCamera.CameraSubject = oldCameraSubject
+        elseif player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+            workspace.CurrentCamera.CameraSubject = player.Character:FindFirstChildOfClass("Humanoid")
+        end
+        isSpectating = false
+        spectateTarget = nil
     end
-})
+end})
 
--- Veiculos Tab
-VeiculoTab:CreateLabel("Car Notifier inertial (mantive funções originais)", 4483362458, Color3.fromRGB(255,255,255), false)
+-- Refresh ESP
+TPTab:CreateButton({ Name = "Refresh ESP/Players", Callback = function() refreshAllESP() end })
 
--- Aplicar JumpPower inicial
-task.defer(function()
-    if humanoid then
-        pcall(function() humanoid.JumpPower = currentJumpPower end)
-    end
-end)
+-- JumpPower inicial
+task.defer(function() if humanoid then pcall(function() humanoid.JumpPower = currentJumpPower end) end end)
 
 -- Cleanup ao fechar
 Rayfield:OnClose(function()
     for k,_ in pairs(espMap) do removeESP(k) end
-    if oldCameraSubject then
-        workspace.CurrentCamera.CameraSubject = oldCameraSubject
-    end
+    if oldCameraSubject then workspace.CurrentCamera.CameraSubject = oldCameraSubject end
 end)
 
-print("Mec BR - Mod carregado (ESP/TP/VIEW/BUG LOOP/TP Normal/Invisível).")
+print("Mec BR - Mod carregado (ESP/TP/VIEW/BUG LOOP/TP Normal/Invisível/Crash Player).")
