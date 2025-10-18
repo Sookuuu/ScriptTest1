@@ -1,8 +1,8 @@
--- Hub BR - Rayfield + ESP / Teleport / Spectate / TP-BUG (autorizado)
+-- Hub BR - Rayfield + ESP / Teleport / Spectate / TP-BUG Automático
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "Mec BR - FREEHUB V1 (ESP+TP+VIEW+BUG)",
+   Name = "Mec BR - FREEHUB V2 (ESP+TP+VIEW+BUG)",
    LoadingTitle = "Carregando Menu",
    LoadingSubtitle = "by OfficialPatozoid - Modificado",
    ShowText = "Rayfield",
@@ -19,7 +19,7 @@ local workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 
--- === Settings iniciais (limites aumentados para 3000) ===
+-- === Configs iniciais ===
 local MAX_SPEED = 3000
 local MAX_JUMP = 3000
 local MAX_FLY = 3000
@@ -40,15 +40,13 @@ end
 
 -- ====== ESP ======
 local espEnabled = false
-local espMap = {} -- player -> billboard
+local espMap = {}
 
 local function makeBillboardForCharacter(plr)
     if not plr or not plr.Character then return end
     local char = plr.Character
     local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
     if not head then return end
-
-    -- Avoid dupes
     if espMap[plr] and espMap[plr].Parent then return espMap[plr] end
 
     local billboard = Instance.new("BillboardGui")
@@ -62,7 +60,7 @@ local function makeBillboardForCharacter(plr)
     local txt = Instance.new("TextLabel")
     txt.Size = UDim2.new(1, 0, 1, 0)
     txt.BackgroundTransparency = 1
-    txt.Text = plr.Name -- nome curto e legível
+    txt.Text = plr.Name
     txt.Font = Enum.Font.GothamSemibold
     txt.TextSize = 16
     txt.TextStrokeTransparency = 0.6
@@ -75,7 +73,7 @@ end
 
 local function removeESP(plr)
     if espMap[plr] then
-        pcall(function() if espMap[plr] then espMap[plr]:Destroy() end end)
+        pcall(function() espMap[plr]:Destroy() end)
         espMap[plr] = nil
     end
 end
@@ -92,18 +90,15 @@ end
 Players.PlayerAdded:Connect(function(plr)
     plr.CharacterAdded:Connect(function()
         if espEnabled and plr ~= player then
-            -- delay pequeno para Head existir
             task.wait(0.05)
             makeBillboardForCharacter(plr)
         end
     end)
 end)
-
 Players.PlayerRemoving:Connect(function(plr)
     removeESP(plr)
 end)
 
--- Toggle ESP UI
 local ESPToggle = PlayerTab:CreateToggle({
     Name = "ESP Players (nomes)",
     CurrentValue = false,
@@ -122,7 +117,7 @@ local ESPToggle = PlayerTab:CreateToggle({
     end,
 })
 
--- ====== Player controls (WalkSpeed / JumpPower / InfiniteJump / Noclip / Fly) ======
+-- ====== Player Controls ======
 local humanoid = nil
 local character = player.Character or player.CharacterAdded:Wait()
 
@@ -133,7 +128,7 @@ end
 player.CharacterAdded:Connect(onCharacter)
 if player.Character then onCharacter(player.Character) end
 
--- WalkSpeed slider (0..3000)
+-- WalkSpeed
 local WalkSlider = PlayerTab:CreateSlider({
     Name = "WalkSpeed",
     Range = {0, MAX_SPEED},
@@ -148,7 +143,7 @@ local WalkSlider = PlayerTab:CreateSlider({
     end,
 })
 
--- JumpPower slider (0..3000)
+-- JumpPower
 local currentJumpPower = 50
 local JumpSlider = PlayerTab:CreateSlider({
     Name = "JumpPower",
@@ -196,7 +191,7 @@ RunService.Stepped:Connect(function()
     end
 end)
 
--- Fly (usar velocity like before) + velocidade até 3000
+-- Fly
 local flying = false
 local flySpeed = 50
 local keys = {W=false,A=false,S=false,D=false,Space=false,LeftShift=false}
@@ -262,7 +257,6 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- ====== Teleport / Spectate / Camera View ======
--- UI: caixa de texto para digitar o nome (mais robusto que depender de dropdown desconhecido)
 local targetName = ""
 local function getPlayerByNameOrPrefix(name)
     if not name or name == "" then return nil end
@@ -282,61 +276,59 @@ local NameBox = TPTab:CreateInput({
     Callback = function(text) targetName = text end,
 })
 
--- botão único: clique normal = teleportar pra player | segure SHIFT + clique = "bug" (enviar pra área isolada)
-local TeleportOrBugButton = TPTab:CreateButton({
-    Name = "Teleport / BUG (SHIFT+Clique)",
+local TeleportButton = TPTab:CreateButton({
+    Name = "Teleport até Player",
     Callback = function()
         local target = getPlayerByNameOrPrefix(targetName)
-        if not target then
-            StarterGui:SetCore("SendNotification", {Title="TP/BUG", Text="Player não encontrado!", Duration = 3})
+        if not target or not target.Character or not target.Character:FindFirstChild("HumanoidRootPart") then
+            StarterGui:SetCore("SendNotification",{Title="Teleport",Text="Player não encontrado ou sem HRP",Duration=3})
             return
         end
-
-        local tchar = target.Character
-        local mychar = player.Character
-        if not tchar or not tchar:FindFirstChild("HumanoidRootPart") then
-            StarterGui:SetCore("SendNotification", {Title="TP/BUG", Text="Target sem character/humanoidrootpart.", Duration = 3})
-            return
-        end
-
-        -- detecta SHIFT no momento do clique
-        local shiftDown = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-
-        if shiftDown then
-            -- BUG MODE: envia pra área isolada (coordenadas altas/distantes)
-            local safePos = Vector3.new(9999, 500, 9999) -- altera se quiser outro lugar (ou 0,500,0)
+        if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
             pcall(function()
-                local hrp = tchar:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    hrp.CFrame = CFrame.new(safePos)
-                    hrp.Velocity = Vector3.new(0,0,0)
-                end
+                player.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0,5,0)
+                player.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
             end)
-            StarterGui:SetCore("SendNotification", {Title="BUG", Text=""..target.Name.." enviado pra área isolada.", Duration = 4})
-            warn("[TP/BUG] "..target.Name.." -> "..tostring(safePos))
-        else
-            -- TELEPORT NORMAL: teleporta VOCÊ até o target
-            if not mychar or not mychar:FindFirstChild("HumanoidRootPart") then
-                StarterGui:SetCore("SendNotification", {Title="TP/BUG", Text="Seu character não disponível.", Duration = 3})
-                return
-            end
-            pcall(function()
-                mychar.HumanoidRootPart.CFrame = tchar.HumanoidRootPart.CFrame + Vector3.new(0,5,0)
-                mychar.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
-            end)
-            StarterGui:SetCore("SendNotification", {Title="Teleport", Text="Teleportado até "..target.Name, Duration = 3})
+            StarterGui:SetCore("SendNotification",{Title="Teleport",Text="Teleportado até "..target.Name,Duration=3})
         end
     end,
 })
 
--- Spectate (camera follow)
+-- ====== BUG Automático ======
+local bugEnabled = false
+local bugDistance = 20000 -- distância bem maior
+
+TPTab:CreateToggle({
+    Name = "BUG Automático (Ligar/Desligar)",
+    CurrentValue = false,
+    Flag = "BugToggle",
+    Callback = function(val)
+        bugEnabled = val
+    end,
+})
+
+task.spawn(function()
+    while true do
+        task.wait(1) -- repete a cada 1s
+        if bugEnabled then
+            local target = getPlayerByNameOrPrefix(targetName)
+            if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                pcall(function()
+                    target.Character.HumanoidRootPart.CFrame = CFrame.new(Vector3.new(bugDistance, 500, bugDistance))
+                    target.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
+                end)
+                StarterGui:SetCore("SendNotification",{Title="BUG Automático",Text=target.Name.." enviado pra área isolada!",Duration=2})
+            end
+        end
+    end
+end)
+
+-- Spectate
 local isSpectating = false
 local spectateTarget = nil
 local oldCameraSubject = nil
 
-local SpectateDropdownPlaceholder = TPTab:CreateLabel("Usa o mesmo nome do campo acima pra ver", 4483362458, Color3.fromRGB(255,255,255), false)
-
-local SpectateToggle = TPTab:CreateToggle({
+TPTab:CreateToggle({
     Name = "Ver Player (Spectate)",
     CurrentValue = false,
     Flag = "SpectateToggle",
@@ -344,53 +336,52 @@ local SpectateToggle = TPTab:CreateToggle({
         if val then
             local target = getPlayerByNameOrPrefix(targetName)
             if not target or not target.Character or not target.Character:FindFirstChildOfClass("Humanoid") then
-                StarterGui:SetCore("SendNotification", {Title="Spectate", Text="Target inválido.", Duration = 3})
-                SpectateToggle:Set(false) -- reset UI toggle
+                StarterGui:SetCore("SendNotification",{Title="Spectate",Text="Target inválido.",Duration=3})
                 return
             end
             spectateTarget = target
             oldCameraSubject = workspace.CurrentCamera.CameraSubject
             workspace.CurrentCamera.CameraSubject = target.Character:FindFirstChildOfClass("Humanoid")
             isSpectating = true
-            StarterGui:SetCore("SendNotification", {Title="Spectate", Text="Agora vendo: "..target.Name, Duration = 3})
+            StarterGui:SetCore("SendNotification",{Title="Spectate",Text="Agora vendo: "..target.Name,Duration=3})
         else
-            -- stop spectate
             if oldCameraSubject then
                 workspace.CurrentCamera.CameraSubject = oldCameraSubject
-            else
-                -- fallback para o próprio humanoid
-                if player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
-                    workspace.CurrentCamera.CameraSubject = player.Character:FindFirstChildOfClass("Humanoid")
-                end
+            elseif player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+                workspace.CurrentCamera.CameraSubject = player.Character:FindFirstChildOfClass("Humanoid")
             end
             isSpectating = false
             spectateTarget = nil
-            StarterGui:SetCore("SendNotification", {Title="Spectate", Text="Parou de ver.", Duration = 2})
+            StarterGui:SetCore("SendNotification",{Title="Spectate",Text="Parou de ver.",Duration=2})
         end
     end,
 })
 
--- Quick buttons: refresh ESP/players
-TPTab:CreateButton({ Name = "Refresh ESP/Players", Callback = function() refreshAllESP() StarterGui:SetCore("SendNotification",{Title="Refresh",Text="ESP/Players refreshed",Duration=2}) end })
+-- Refresh ESP/Players
+TPTab:CreateButton({
+    Name = "Refresh ESP/Players",
+    Callback = function()
+        refreshAllESP()
+        StarterGui:SetCore("SendNotification",{Title="Refresh",Text="ESP/Players refreshed",Duration=2})
+    end
+})
 
--- ====== VeiculoTab tweaks (mantive sua lógica original minimal) ======
-VeiculoTab:CreateLabel("Car Notifier inertial (mantive as funções originais)", 4483362458, Color3.fromRGB(255,255,255), false)
+-- Veiculos Tab
+VeiculoTab:CreateLabel("Car Notifier inertial (mantive funções originais)", 4483362458, Color3.fromRGB(255,255,255), false)
 
--- === Final tweaks: aplica JumpPower inicial ao humanoid já existente ===
+-- Aplicar JumpPower inicial
 task.defer(function()
     if humanoid then
         pcall(function() humanoid.JumpPower = currentJumpPower end)
     end
 end)
 
--- cleanup ao fechar (opcional)
+-- Cleanup ao fechar
 Rayfield:OnClose(function()
-    -- remove billboards
     for k,_ in pairs(espMap) do removeESP(k) end
-    -- restore camera subject
     if oldCameraSubject then
         workspace.CurrentCamera.CameraSubject = oldCameraSubject
     end
 end)
 
-print("Mec BR - Mod carregado (ESP/TP/VIEW/BUG).")
+print("Mec BR - Mod carregado (ESP/TP/VIEW/BUG Automático).")
