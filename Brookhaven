@@ -2,7 +2,7 @@
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "Mec BR - FREEHUB V4 (ESP+TP+VIEW+BUG LOOP+TP+INVIS)",
+   Name = "Mec BR - FREEHUB V5 (ESP+TP+VIEW+BUG LOOP+TP+INVIS)",
    LoadingTitle = "Carregando Menu",
    LoadingSubtitle = "by OfficialPatozoid - Modificado",
    ShowText = "Rayfield",
@@ -256,7 +256,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- ====== Teleport + BUG LOOP ======
+-- ====== Teleport Target ======
 local targetName = ""
 local function getPlayerByNameOrPrefix(name)
     if not name or name == "" then return nil end
@@ -276,8 +276,9 @@ local NameBox = TPTab:CreateInput({
     Callback = function(text) targetName = text end,
 })
 
+-- ====== TP + BUG LOOP ======
 local tpBugLoop = false
-local bugDistance = 20000
+local bugDistance = 20000 -- distância pra bugar player
 
 TPTab:CreateToggle({
     Name = "TP + BUG LOOP",
@@ -294,12 +295,14 @@ task.spawn(function()
         if tpBugLoop then
             local target = getPlayerByNameOrPrefix(targetName)
             if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                -- Teleporta VOCÊ até o target
                 if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
                     pcall(function()
                         player.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0,5,0)
                         player.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
                     end)
                 end
+                -- Bugando o target
                 pcall(function()
                     target.Character.HumanoidRootPart.CFrame = CFrame.new(Vector3.new(bugDistance,500,bugDistance))
                     target.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
@@ -325,18 +328,10 @@ TPTab:CreateButton({
                     player.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0,5,0)
                     player.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
                 end)
-                StarterGui:SetCore("SendNotification",{
-                    Title = "Teleport",
-                    Text = "Teleportado até "..target.Name,
-                    Duration = 2
-                })
+                StarterGui:SetCore("SendNotification",{Title="Teleport",Text="Teleportado até "..target.Name,Duration=2})
             end
         else
-            StarterGui:SetCore("SendNotification",{
-                Title = "Teleport",
-                Text = "Target inválido!",
-                Duration = 2
-            })
+            StarterGui:SetCore("SendNotification",{Title="Teleport",Text="Target inválido!",Duration=2})
         end
     end
 })
@@ -419,4 +414,16 @@ VeiculoTab:CreateLabel("Car Notifier inertial (mantive funções originais)", 44
 -- Aplicar JumpPower inicial
 task.defer(function()
     if humanoid then
-        pcall(function() humanoid.JumpPower = currentJumpPower end
+        pcall(function() humanoid.JumpPower = currentJumpPower end)
+    end
+end)
+
+-- Cleanup ao fechar
+Rayfield:OnClose(function()
+    for k,_ in pairs(espMap) do removeESP(k) end
+    if oldCameraSubject then
+        workspace.CurrentCamera.CameraSubject = oldCameraSubject
+    end
+end)
+
+print("Mec BR - Mod carregado (ESP/TP/VIEW/BUG LOOP/TP Normal/Invisível).")
