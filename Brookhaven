@@ -1,8 +1,8 @@
--- Hub BR - Rayfield + ESP / Teleport / Spectate / TP-BUG Automático
+-- Hub BR - Rayfield + ESP / Teleport / Spectate / TP-BUG LOOP
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "Mec BR - FREEHUB V2 (ESP+TP+VIEW+BUG)",
+   Name = "Mec BR - FREEHUB V3 (ESP+TP+VIEW+BUG LOOP)",
    LoadingTitle = "Carregando Menu",
    LoadingSubtitle = "by OfficialPatozoid - Modificado",
    ShowText = "Rayfield",
@@ -256,7 +256,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- ====== Teleport / Spectate / Camera View ======
+-- ====== Teleport + BUG LOOP ======
 local targetName = ""
 local function getPlayerByNameOrPrefix(name)
     if not name or name == "" then return nil end
@@ -276,48 +276,41 @@ local NameBox = TPTab:CreateInput({
     Callback = function(text) targetName = text end,
 })
 
-local TeleportButton = TPTab:CreateButton({
-    Name = "Teleport até Player",
-    Callback = function()
-        local target = getPlayerByNameOrPrefix(targetName)
-        if not target or not target.Character or not target.Character:FindFirstChild("HumanoidRootPart") then
-            StarterGui:SetCore("SendNotification",{Title="Teleport",Text="Player não encontrado ou sem HRP",Duration=3})
-            return
-        end
-        if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            pcall(function()
-                player.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0,5,0)
-                player.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
-            end)
-            StarterGui:SetCore("SendNotification",{Title="Teleport",Text="Teleportado até "..target.Name,Duration=3})
-        end
-    end,
-})
-
--- ====== BUG Automático ======
-local bugEnabled = false
-local bugDistance = 20000 -- distância bem maior
+local tpBugLoop = false
+local bugDistance = 20000
 
 TPTab:CreateToggle({
-    Name = "BUG Automático (Ligar/Desligar)",
+    Name = "TP + BUG LOOP",
     CurrentValue = false,
-    Flag = "BugToggle",
+    Flag = "TPBugLoopToggle",
     Callback = function(val)
-        bugEnabled = val
+        tpBugLoop = val
     end,
 })
 
 task.spawn(function()
     while true do
-        task.wait(1) -- repete a cada 1s
-        if bugEnabled then
+        task.wait(1) -- loop a cada 1s
+        if tpBugLoop then
             local target = getPlayerByNameOrPrefix(targetName)
             if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                -- Teleporta VOCÊ até o target
+                if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                    pcall(function()
+                        player.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0,5,0)
+                        player.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
+                    end)
+                end
+                -- Logo em seguida, teleporta o target pra longe
                 pcall(function()
-                    target.Character.HumanoidRootPart.CFrame = CFrame.new(Vector3.new(bugDistance, 500, bugDistance))
+                    target.Character.HumanoidRootPart.CFrame = CFrame.new(Vector3.new(bugDistance,500,bugDistance))
                     target.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
                 end)
-                StarterGui:SetCore("SendNotification",{Title="BUG Automático",Text=target.Name.." enviado pra área isolada!",Duration=2})
+                StarterGui:SetCore("SendNotification",{
+                    Title = "TP+BUG",
+                    Text = "Você -> "..target.Name.." | "..target.Name.." bugado!",
+                    Duration = 2
+                })
             end
         end
     end
@@ -384,4 +377,4 @@ Rayfield:OnClose(function()
     end
 end)
 
-print("Mec BR - Mod carregado (ESP/TP/VIEW/BUG Automático).")
+print("Mec BR - Mod carregado (ESP/TP+BUG LOOP/VIEW).")
