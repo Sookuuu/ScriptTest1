@@ -1,8 +1,8 @@
--- Hub BR - Rayfield + ESP / Teleport / Spectate / TP-BUG LOOP
+-- Hub BR - Rayfield + ESP / Teleport / Spectate / TP-BUG LOOP + TP Normal + Invisível
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "Mec BR - FREEHUB V3 (ESP+TP+VIEW+BUG LOOP)",
+   Name = "Mec BR - FREEHUB V4 (ESP+TP+VIEW+BUG LOOP+TP+INVIS)",
    LoadingTitle = "Carregando Menu",
    LoadingSubtitle = "by OfficialPatozoid - Modificado",
    ShowText = "Rayfield",
@@ -290,18 +290,16 @@ TPTab:CreateToggle({
 
 task.spawn(function()
     while true do
-        task.wait(1) -- loop a cada 1s
+        task.wait(1)
         if tpBugLoop then
             local target = getPlayerByNameOrPrefix(targetName)
             if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-                -- Teleporta VOCÊ até o target
                 if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
                     pcall(function()
                         player.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0,5,0)
                         player.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
                     end)
                 end
-                -- Logo em seguida, teleporta o target pra longe
                 pcall(function()
                     target.Character.HumanoidRootPart.CFrame = CFrame.new(Vector3.new(bugDistance,500,bugDistance))
                     target.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
@@ -315,6 +313,62 @@ task.spawn(function()
         end
     end
 end)
+
+-- ====== Teleport Normal ======
+TPTab:CreateButton({
+    Name = "Teleport Normal ao Player",
+    Callback = function()
+        local target = getPlayerByNameOrPrefix(targetName)
+        if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                pcall(function()
+                    player.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0,5,0)
+                    player.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
+                end)
+                StarterGui:SetCore("SendNotification",{
+                    Title = "Teleport",
+                    Text = "Teleportado até "..target.Name,
+                    Duration = 2
+                })
+            end
+        else
+            StarterGui:SetCore("SendNotification",{
+                Title = "Teleport",
+                Text = "Target inválido!",
+                Duration = 2
+            })
+        end
+    end
+})
+
+-- ====== Toggle Invisibilidade ======
+local invisible = false
+PlayerTab:CreateToggle({
+    Name = "Invisível",
+    CurrentValue = false,
+    Flag = "InvisibleToggle",
+    Callback = function(val)
+        invisible = val
+        if character then
+            for _, part in ipairs(character:GetChildren()) do
+                if part:IsA("BasePart") or part:IsA("Decal") or part:IsA("MeshPart") then
+                    part.Transparency = invisible and 1 or 0
+                    if part:IsA("BasePart") then
+                        part.CanCollide = not invisible
+                    end
+                elseif part:IsA("Accessory") then
+                    local handle = part:FindFirstChild("Handle")
+                    if handle then
+                        handle.Transparency = invisible and 1 or 0
+                    end
+                end
+            end
+            if humanoid then
+                humanoid.NameDisplayDistance = invisible and 0 or 100
+            end
+        end
+    end
+})
 
 -- Spectate
 local isSpectating = false
@@ -365,16 +419,4 @@ VeiculoTab:CreateLabel("Car Notifier inertial (mantive funções originais)", 44
 -- Aplicar JumpPower inicial
 task.defer(function()
     if humanoid then
-        pcall(function() humanoid.JumpPower = currentJumpPower end)
-    end
-end)
-
--- Cleanup ao fechar
-Rayfield:OnClose(function()
-    for k,_ in pairs(espMap) do removeESP(k) end
-    if oldCameraSubject then
-        workspace.CurrentCamera.CameraSubject = oldCameraSubject
-    end
-end)
-
-print("Mec BR - Mod carregado (ESP/TP+BUG LOOP/VIEW).")
+        pcall(function() humanoid.JumpPower = currentJumpPower end
