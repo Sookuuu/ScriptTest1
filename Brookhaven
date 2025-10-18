@@ -1,8 +1,8 @@
--- Hub BR - Rayfield + ESP / Teleport / Spectate (autorizado)
+-- Hub BR - Rayfield + ESP / Teleport / Spectate / TP-BUG (autorizado)
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "Mec BR - FREEHUB V1 (ESP+TP+VIEW)",
+   Name = "Mec BR - FREEHUB V1 (ESP+TP+VIEW+BUG)",
    LoadingTitle = "Carregando Menu",
    LoadingSubtitle = "by OfficialPatozoid - Modificado",
    ShowText = "Rayfield",
@@ -282,24 +282,50 @@ local NameBox = TPTab:CreateInput({
     Callback = function(text) targetName = text end,
 })
 
-local TeleportToPlayerBtn = TPTab:CreateButton({
-    Name = "Teleportar pra Player",
+-- botão único: clique normal = teleportar pra player | segure SHIFT + clique = "bug" (enviar pra área isolada)
+local TeleportOrBugButton = TPTab:CreateButton({
+    Name = "Teleport / BUG (SHIFT+Clique)",
     Callback = function()
         local target = getPlayerByNameOrPrefix(targetName)
         if not target then
-            StarterGui:SetCore("SendNotification", {Title="Teleport", Text="Player não encontrado!", Duration = 3})
+            StarterGui:SetCore("SendNotification", {Title="TP/BUG", Text="Player não encontrado!", Duration = 3})
             return
         end
-        local tchar = safeFindChar(target)
+
+        local tchar = target.Character
         local mychar = player.Character
-        if not tchar or not mychar or not mychar:FindFirstChild("HumanoidRootPart") then
-            StarterGui:SetCore("SendNotification", {Title="Teleport", Text="Não foi possível teleportar (char faltando).", Duration = 3})
+        if not tchar or not tchar:FindFirstChild("HumanoidRootPart") then
+            StarterGui:SetCore("SendNotification", {Title="TP/BUG", Text="Target sem character/humanoidrootpart.", Duration = 3})
             return
         end
-        pcall(function()
-            mychar.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0, 5, 0)
-            mychar.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
-        end)
+
+        -- detecta SHIFT no momento do clique
+        local shiftDown = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+
+        if shiftDown then
+            -- BUG MODE: envia pra área isolada (coordenadas altas/distantes)
+            local safePos = Vector3.new(9999, 500, 9999) -- altera se quiser outro lugar (ou 0,500,0)
+            pcall(function()
+                local hrp = tchar:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    hrp.CFrame = CFrame.new(safePos)
+                    hrp.Velocity = Vector3.new(0,0,0)
+                end
+            end)
+            StarterGui:SetCore("SendNotification", {Title="BUG", Text=""..target.Name.." enviado pra área isolada.", Duration = 4})
+            warn("[TP/BUG] "..target.Name.." -> "..tostring(safePos))
+        else
+            -- TELEPORT NORMAL: teleporta VOCÊ até o target
+            if not mychar or not mychar:FindFirstChild("HumanoidRootPart") then
+                StarterGui:SetCore("SendNotification", {Title="TP/BUG", Text="Seu character não disponível.", Duration = 3})
+                return
+            end
+            pcall(function()
+                mychar.HumanoidRootPart.CFrame = tchar.HumanoidRootPart.CFrame + Vector3.new(0,5,0)
+                mychar.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
+            end)
+            StarterGui:SetCore("SendNotification", {Title="Teleport", Text="Teleportado até "..target.Name, Duration = 3})
+        end
     end,
 })
 
@@ -344,7 +370,7 @@ local SpectateToggle = TPTab:CreateToggle({
     end,
 })
 
--- Quick buttons: Teleport to and View camera for nearest player under cursor? Keep simple: button to refresh ESP and player list.
+-- Quick buttons: refresh ESP/players
 TPTab:CreateButton({ Name = "Refresh ESP/Players", Callback = function() refreshAllESP() StarterGui:SetCore("SendNotification",{Title="Refresh",Text="ESP/Players refreshed",Duration=2}) end })
 
 -- ====== VeiculoTab tweaks (mantive sua lógica original minimal) ======
@@ -367,4 +393,4 @@ Rayfield:OnClose(function()
     end
 end)
 
-print("Mec BR - Mod carregado (ESP/TP/VIEW).")
+print("Mec BR - Mod carregado (ESP/TP/VIEW/BUG).")
